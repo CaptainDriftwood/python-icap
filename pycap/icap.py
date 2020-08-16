@@ -1,4 +1,4 @@
-from . import request
+import socket
 
 
 class ICAP(object):
@@ -10,12 +10,6 @@ class ICAP(object):
         self._started = False
         self.socket = None
 
-    @property
-    def started(self):
-        return self._started
-
-    def start(self):
-        if self.started:
-            raise IOError("ICAP session already opened")
-
+    def connect(self, host: str, port: int = DEFAULT_PORT):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         pass
