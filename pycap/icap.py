@@ -8,25 +8,30 @@ class IcapClient:
     END_LINE_DELIMETER = "\r\n"
 
     def __init__(self, address, port=DEFAULT_PORT):
-        self.address = address
-        self.port = port
+        self._address = address
+        self._port = port
         self._started = False
-        self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     @property
     def host(self):
-        return self.address
+        return self._address
 
     @property
     def port(self):
-        return self.port
+        return self._port
+
+    @port.setter
+    def port(self, p: int):
+        if not isinstance(p, int):
+            raise TypeError("Port is not valid type. Please enter an int value.")
+        self._port = p
 
     def connect(self):
-        self.__socket.bind((self.host, self.port))
-        self.__socket.setblocking(True)
+        self._socket.bind((self.host, self.port))
+        self._socket.setblocking(True)
 
     def icap_request_header(self):
-
         pass
 
     def perform_adaptation(self):
@@ -34,9 +39,3 @@ class IcapClient:
 
     def send(self):
         pass
-
-    @port.setter
-    def port(self, value):
-        self._port = value
-
-
