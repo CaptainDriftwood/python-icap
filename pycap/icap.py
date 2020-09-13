@@ -3,6 +3,9 @@ import pathlib
 import socket
 
 
+# TODO Add async support as well
+# TODO Add support for context management protocol
+
 class IcapClient:
     DEFAULT_PORT = 1344
     END_LINE_DELIMETER = "\r\n"
