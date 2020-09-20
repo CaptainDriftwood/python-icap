@@ -13,3 +13,6 @@ class Request:
 if __name__ == '__main__':
     req: HTTPResponse = request.urlopen("https://www.google.com")
     print(req)
+    # A test comment
+
+    # Another test comment
