@@ -5,6 +5,7 @@ import socket
 
 # TODO Add async support as well
 # TODO Add support for context management protocol
+# TODO Add method to scan filepath, or IO object
 
 class IcapClient:
     DEFAULT_PORT = 1344
