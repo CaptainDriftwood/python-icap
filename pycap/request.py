@@ -1,20 +1,65 @@
 import io
 import socket
+from collections import UserDict
 from http.client import HTTPResponse
+from typing import Any
+from typing import List
+from pprint import pprint
 from urllib import request, response
 
 
-class Request:
+class NestedDict(UserDict):
 
-    def __init__(self):
-        pass
+    def deep_set(self, key: str, value: Any):
+        keys = key.split(".")
+        no_keys = len(keys)
+        d = self.data
+        for index, k in enumerate(keys, 1):
+            if k in d:
+                if isinstance(d[k], dict):
+                    d = d[k]
+            elif k not in d:
+                if index != no_keys:
+                    d[k] = dict()
+                    d = d[k]
+            if k in d and isinstance(k, dict):
+                d = d[k]
+            else:
+                if index == no_keys:
+                    d[k] = value
+
+    def deep_get(self, key: str, **kwargs) -> Any:
+        keys: List[str] = key.split(".")
+        no_keys = len(keys)
+        d = self.data
+        for index, k in enumerate(keys, 1):
+            try:
+                d = d[k]
+            except KeyError as e:
+                if 'default' in kwargs:
+                    d[k] = dict()
+                    if index == no_keys:
+                        d[k] = kwargs["default"]
+                else:
+                    raise e
+        return d
+
+    def exists(self, key: str) -> bool:
+        """Given a key, check if it exists in dictionary"""
+        keys = key.split(".")
+        num_keys = len(keys)
+        d = self.data
+        for index, k in enumerate(keys, 1):
+            if k in d:
+                d = d[k]
+                if index == num_keys:
+                    return True
+        else:
+            return False
 
 
 if __name__ == '__main__':
-    req: HTTPResponse = request.urlopen("https://www.google.com")
-    print(req)
-    # A test comment
-
-    # Another test comment
-
-    # A final test comment
+    h = NestedDict()
+    h.deep_set("collection.name.transliteral", "Jason Ahlstrand")
+    h.deep_set("collection.name.literal", "Jason")
+    pprint(h)
