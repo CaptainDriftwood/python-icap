@@ -11,6 +11,7 @@ from urllib import request, response
 class NestedDict(UserDict):
 
     def deep_set(self, key: str, value: Any):
+        # TODO Add keyword argument skip_if_exists
         keys = key.split(".")
         no_keys = len(keys)
         d = self.data
@@ -30,15 +31,15 @@ class NestedDict(UserDict):
 
     def deep_get(self, key: str, **kwargs) -> Any:
         keys: List[str] = key.split(".")
-        no_keys = len(keys)
+        num_keys = len(keys)
         d = self.data
         for index, k in enumerate(keys, 1):
             try:
                 d = d[k]
             except KeyError as e:
-                if 'default' in kwargs:
+                if "default" in kwargs:
                     d[k] = dict()
-                    if index == no_keys:
+                    if index == num_keys:
                         d[k] = kwargs["default"]
                 else:
                     raise e
@@ -56,10 +57,3 @@ class NestedDict(UserDict):
                     return True
         else:
             return False
-
-
-if __name__ == '__main__':
-    h = NestedDict()
-    h.deep_set("collection.name.transliteral", "Jason Ahlstrand")
-    h.deep_set("collection.name.literal", "Jason")
-    pprint(h)
