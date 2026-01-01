@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  icap-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pycap-icap-server
+    ports:
+      - "1344:1344"
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "1344"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - icap-network
+
+volumes:
+  clamav-data:
+
+networks:
+  icap-network:
+    driver: bridge
