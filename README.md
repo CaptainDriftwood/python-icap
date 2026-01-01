@@ -79,8 +79,9 @@ The library provides convenient methods for scanning files directly:
 
 ```python
 from pycap import IcapClient
+from pathlib import Path
 
-# Scan a file by path
+# Scan a file by path (string)
 with IcapClient('localhost') as client:
     response = client.scan_file('/path/to/file.pdf')
     if response.is_no_modification:
@@ -88,12 +89,26 @@ with IcapClient('localhost') as client:
     else:
         print("File contains threats")
 
-# Scan a file-like object
+# Scan a file using pathlib.Path object
+with IcapClient('localhost') as client:
+    file_path = Path('/path/to/document.pdf')
+    response = client.scan_file(file_path)
+    if response.is_no_modification:
+        print("File is clean")
+
+# Scan a file-like object (stream)
 with open('document.pdf', 'rb') as f:
     with IcapClient('localhost') as client:
         response = client.scan_stream(f, filename='document.pdf')
         if response.is_no_modification:
             print("Stream is clean")
+
+# Scan bytes content directly
+with IcapClient('localhost') as client:
+    content = b"Some file content or data"
+    response = client.scan_bytes(content, filename='data.bin')
+    if response.is_no_modification:
+        print("Content is clean")
 ```
 
 ### Manual File Scanning (lower-level API)

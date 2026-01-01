@@ -3,18 +3,18 @@ Unit tests for PyCap ICAP client using pytest.
 """
 
 import pytest
-from pycap import IcapClient, IcapResponse
-from pycap.exception import IcapException
 
+from pycap import IcapClient, IcapResponse
 
 # IcapResponse tests
+
 
 def test_parse_success_response():
     """Test parsing a successful ICAP response."""
     raw_response = b"ICAP/1.0 200 OK\r\nServer: C-ICAP/1.0\r\nConnection: close\r\n\r\nBody content"
-    
+
     response = IcapResponse.parse(raw_response)
-    
+
     assert response.status_code == 200
     assert response.status_message == "OK"
     assert "Server" in response.headers
@@ -25,9 +25,9 @@ def test_parse_success_response():
 def test_parse_no_modification_response():
     """Test parsing 204 No Modification response."""
     raw_response = b"ICAP/1.0 204 No Content\r\nServer: C-ICAP/1.0\r\n\r\n"
-    
+
     response = IcapResponse.parse(raw_response)
-    
+
     assert response.status_code == 204
     assert response.status_message == "No Content"
     assert response.is_no_modification
@@ -38,10 +38,10 @@ def test_is_success():
     """Test is_success property."""
     success_response = IcapResponse(200, "OK", {}, b"")
     assert success_response.is_success
-    
+
     no_mod_response = IcapResponse(204, "No Content", {}, b"")
     assert no_mod_response.is_success
-    
+
     error_response = IcapResponse(500, "Internal Error", {}, b"")
     assert not error_response.is_success
 
@@ -54,10 +54,11 @@ def test_invalid_response():
 
 # IcapClient tests
 
+
 def test_client_initialization():
     """Test client initialization."""
     client = IcapClient("localhost", 1344)
-    
+
     assert client.host == "localhost"
     assert client.port == 1344
     assert not client._connected
@@ -80,15 +81,12 @@ def test_port_setter_invalid():
 def test_build_request():
     """Test building ICAP request."""
     client = IcapClient("localhost", 1344)
-    
+
     request_line = "OPTIONS icap://localhost:1344/avscan ICAP/1.0\r\n"
-    headers = {
-        "Host": "localhost:1344",
-        "Encapsulated": "null-body=0"
-    }
-    
+    headers = {"Host": "localhost:1344", "Encapsulated": "null-body=0"}
+
     request = client._build_request(request_line, headers)
-    
+
     assert isinstance(request, bytes)
     assert b"OPTIONS" in request
     assert b"Host: localhost:1344" in request
@@ -101,9 +99,9 @@ def test_context_manager():
     # This test won't actually connect since there's no server
     # We're just testing the structure
     client = IcapClient("localhost", 1344)
-    
+
     assert not client._connected
     # Note: Can't test actual connection without a server
     # but we can verify the methods exist
-    assert hasattr(client, '__enter__')
-    assert hasattr(client, '__exit__')
+    assert hasattr(client, "__enter__")
+    assert hasattr(client, "__exit__")

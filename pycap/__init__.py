@@ -1,13 +1,8 @@
 import logging
 
+from .exception import IcapConnectionError, IcapException, IcapProtocolError, IcapTimeoutError
 from .icap import IcapClient
 from .response import IcapResponse
-from .exception import (
-    IcapException,
-    IcapConnectionError,
-    IcapProtocolError,
-    IcapTimeoutError
-)
 
 # Set up logging with NullHandler to avoid "No handler found" warnings
 logging.getLogger(__name__).addHandler(logging.NullHandler())
