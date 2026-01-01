@@ -1,11 +1,12 @@
 import socket
-from typing import Dict, Optional, Tuple
+import logging
+from typing import Dict, Optional, Union, BinaryIO
+from pathlib import Path
 from .response import IcapResponse
 
 
-# TODO Add async support as well
-# TODO Add support for context management protocol
-# TODO Add method to scan filepath, or IO object
+logger = logging.getLogger(__name__)
+
 
 class IcapClient:
     """
@@ -33,6 +34,7 @@ class IcapClient:
         self._timeout = timeout
         self._socket = None
         self._connected = False
+        logger.debug(f"Initialized IcapClient for {address}:{port}")
 
     @property
     def host(self):
@@ -51,20 +53,24 @@ class IcapClient:
     def connect(self):
         """Connect to the ICAP server."""
         if self._connected:
+            logger.debug("Already connected")
             return
             
+        logger.info(f"Connecting to {self.host}:{self.port}")
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._socket.settimeout(self._timeout)
         self._socket.connect((self.host, self.port))
         self._connected = True
+        logger.info(f"Connected to {self.host}:{self.port}")
 
     def disconnect(self):
         """Disconnect from the ICAP server."""
         if self._socket:
             try:
                 self._socket.close()
-            except Exception:
-                pass
+                logger.info(f"Disconnected from {self.host}:{self.port}")
+            except (OSError, socket.error) as e:
+                logger.warning(f"Error while disconnecting: {e}")
             self._socket = None
         self._connected = False
 
@@ -90,7 +96,8 @@ class IcapClient:
         """
         if not self._connected:
             self.connect()
-            
+        
+        logger.debug(f"Sending OPTIONS request for service: {service}")
         # Build OPTIONS request
         request_line = f"OPTIONS icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
         headers = {
@@ -100,7 +107,9 @@ class IcapClient:
         }
         
         request = self._build_request(request_line, headers)
-        return self._send_and_receive(request)
+        response = self._send_and_receive(request)
+        logger.debug(f"OPTIONS response: {response.status_code} {response.status_message}")
+        return response
 
     def respmod(self, service: str, http_request: bytes, http_response: bytes, 
                 headers: Optional[Dict[str, str]] = None) -> IcapResponse:
@@ -118,7 +127,8 @@ class IcapClient:
         """
         if not self._connected:
             self.connect()
-            
+        
+        logger.debug(f"Sending RESPMOD request for service: {service}")
         request_line = f"RESPMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
         
         # Build encapsulated header offsets
@@ -147,7 +157,9 @@ class IcapClient:
             request += http_request
         request += http_response
         
-        return self._send_and_receive(request)
+        response = self._send_and_receive(request)
+        logger.debug(f"RESPMOD response: {response.status_code} {response.status_message}")
+        return response
 
     def reqmod(self, service: str, http_request: bytes, http_body: Optional[bytes] = None,
                headers: Optional[Dict[str, str]] = None) -> IcapResponse:
@@ -165,7 +177,8 @@ class IcapClient:
         """
         if not self._connected:
             self.connect()
-            
+        
+        logger.debug(f"Sending REQMOD request for service: {service}")
         request_line = f"REQMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
         
         # Calculate encapsulated offsets
@@ -197,7 +210,72 @@ class IcapClient:
             request += http_body
             request += f"{self.CRLF}0{self.CRLF}{self.CRLF}".encode()
         
-        return self._send_and_receive(request)
+        response = self._send_and_receive(request)
+        logger.debug(f"REQMOD response: {response.status_code} {response.status_message}")
+        return response
+
+    def scan_file(self, filepath: Union[str, Path], service: str = "avscan") -> IcapResponse:
+        """
+        Convenience method to scan a file using RESPMOD.
+        
+        Args:
+            filepath: Path to the file to scan (string or Path object)
+            service: ICAP service name (default: "avscan")
+            
+        Returns:
+            IcapResponse object
+            
+        Example:
+            >>> with IcapClient('localhost') as client:
+            ...     response = client.scan_file('/path/to/file.pdf')
+            ...     if response.is_no_modification:
+            ...         print("File is clean")
+        """
+        filepath = Path(filepath)
+        logger.info(f"Scanning file: {filepath}")
+        
+        if not filepath.exists():
+            raise FileNotFoundError(f"File not found: {filepath}")
+        
+        with open(filepath, 'rb') as f:
+            return self.scan_stream(f, service=service, filename=filepath.name)
+
+    def scan_stream(self, stream: BinaryIO, service: str = "avscan", 
+                    filename: Optional[str] = None) -> IcapResponse:
+        """
+        Convenience method to scan a file-like object using RESPMOD.
+        
+        Args:
+            stream: File-like object (must support read())
+            service: ICAP service name (default: "avscan")
+            filename: Optional filename to use in HTTP headers
+            
+        Returns:
+            IcapResponse object
+            
+        Example:
+            >>> with open('file.pdf', 'rb') as f:
+            ...     with IcapClient('localhost') as client:
+            ...         response = client.scan_stream(f, filename='file.pdf')
+            ...         if response.is_no_modification:
+            ...             print("Stream is clean")
+        """
+        content = stream.read()
+        logger.info(f"Scanning stream ({len(content)} bytes){f' - {filename}' if filename else ''}")
+        
+        # Build HTTP request headers
+        resource = f"/{filename}" if filename else "/scan"
+        http_request = f"GET {resource} HTTP/1.1\r\nHost: file-scan\r\n\r\n".encode()
+        
+        # Build HTTP response with file content
+        http_response = (
+            f"HTTP/1.1 200 OK\r\n"
+            f"Content-Type: application/octet-stream\r\n"
+            f"Content-Length: {len(content)}\r\n"
+            f"\r\n"
+        ).encode() + content
+        
+        return self.respmod(service, http_request, http_response)
 
     def _build_request(self, request_line: str, headers: Dict[str, str]) -> bytes:
         """Build ICAP request from request line and headers."""
@@ -209,6 +287,7 @@ class IcapClient:
 
     def _send_and_receive(self, request: bytes) -> IcapResponse:
         """Send request and receive response."""
+        logger.debug(f"Sending {len(request)} bytes to ICAP server")
         self._socket.sendall(request)
         
         # Receive response headers first
@@ -238,6 +317,7 @@ class IcapClient:
             
             # If we have Content-Length, read exactly that many bytes
             if content_length is not None:
+                logger.debug(f"Reading {content_length} bytes of body content")
                 response_data = header_section + header_end_marker
                 bytes_read = len(body_start)
                 response_data += body_start
@@ -251,6 +331,7 @@ class IcapClient:
             else:
                 # For responses without Content-Length (like 204), headers are enough
                 # Keep what we have
-                pass
+                logger.debug("No Content-Length header, using headers only")
         
+        logger.debug(f"Received {len(response_data)} bytes from ICAP server")
         return IcapResponse.parse(response_data)

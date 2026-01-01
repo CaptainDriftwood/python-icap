@@ -75,11 +75,34 @@ with IcapClient('localhost', port=1344) as client:
 
 ### Scanning Files
 
+The library provides convenient methods for scanning files directly:
+
+```python
+from pycap import IcapClient
+
+# Scan a file by path
+with IcapClient('localhost') as client:
+    response = client.scan_file('/path/to/file.pdf')
+    if response.is_no_modification:
+        print("File is clean")
+    else:
+        print("File contains threats")
+
+# Scan a file-like object
+with open('document.pdf', 'rb') as f:
+    with IcapClient('localhost') as client:
+        response = client.scan_stream(f, filename='document.pdf')
+        if response.is_no_modification:
+            print("Stream is clean")
+```
+
+### Manual File Scanning (lower-level API)
+
 ```python
 from pycap import IcapClient
 
 def scan_file(filepath, icap_host='localhost', service='avscan'):
-    """Scan a file using ICAP."""
+    """Scan a file using ICAP (lower-level approach)."""
     with open(filepath, 'rb') as f:
         content = f.read()
     
@@ -103,6 +126,22 @@ else:
     print("File contains threats")
 ```
 
+## Logging
+
+The library uses Python's standard `logging` module. Configure it to see detailed operation logs:
+
+```python
+import logging
+from pycap import IcapClient
+
+# Enable debug logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Now all ICAP operations will be logged
+with IcapClient('localhost') as client:
+    response = client.scan_file('/path/to/file.pdf')
+```
+
 ## Key Improvements from Initial Implementation
 
 The initial implementation had several issues that have been corrected:
@@ -113,6 +152,8 @@ The initial implementation had several issues that have been corrected:
 4. **Response Parsing**: Complete IcapResponse class with status code, headers, and body parsing
 5. **Multiple Methods**: Implemented OPTIONS, REQMOD, and RESPMOD methods
 6. **Error Handling**: Added custom exceptions for better error reporting
+7. **Logging Support**: Integrated logging throughout for debugging and monitoring
+8. **Convenience Methods**: Added `scan_file()` and `scan_stream()` for easy file scanning
 7. **Encapsulated Header**: Proper calculation of encapsulated header offsets
 
 ## Docker Integration Testing
