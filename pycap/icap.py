@@ -1,8 +1,9 @@
 import logging
 import socket
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, Optional, Union
+from typing import Any, BinaryIO, Dict, Iterator, Optional, Union
 
+from .exception import IcapConnectionError, IcapProtocolError, IcapServerError, IcapTimeoutError
 from .response import IcapResponse
 
 logger = logging.getLogger(__name__)
@@ -52,17 +53,29 @@ class IcapClient:
         self._port = p
 
     def connect(self) -> None:
-        """Connect to the ICAP server."""
+        """Connect to the ICAP server.
+
+        Raises:
+            IcapConnectionError: If connection to the server fails.
+            IcapTimeoutError: If connection times out.
+        """
         if self._connected:
             logger.debug("Already connected")
             return
 
         logger.info(f"Connecting to {self.host}:{self.port}")
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._socket.settimeout(self._timeout)
-        self._socket.connect((self.host, self.port))
-        self._connected = True
-        logger.info(f"Connected to {self.host}:{self.port}")
+        try:
+            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._socket.settimeout(self._timeout)
+            self._socket.connect((self.host, self.port))
+            self._connected = True
+            logger.info(f"Connected to {self.host}:{self.port}")
+        except socket.timeout as e:
+            self._socket = None
+            raise IcapTimeoutError(f"Connection to {self.host}:{self.port} timed out") from e
+        except OSError as e:
+            self._socket = None
+            raise IcapConnectionError(f"Failed to connect to {self.host}:{self.port}: {e}") from e
 
     def disconnect(self) -> None:
         """Disconnect from the ICAP server."""
@@ -258,7 +271,11 @@ class IcapClient:
             return self.scan_stream(f, service=service, filename=filepath.name)
 
     def scan_stream(
-        self, stream: BinaryIO, service: str = "avscan", filename: Optional[str] = None
+        self,
+        stream: BinaryIO,
+        service: str = "avscan",
+        filename: Optional[str] = None,
+        chunk_size: int = 0,
     ) -> IcapResponse:
         """
         Convenience method to scan a file-like object using RESPMOD.
@@ -267,6 +284,9 @@ class IcapClient:
             stream: File-like object (must support read())
             service: ICAP service name (default: "avscan")
             filename: Optional filename to use in HTTP headers
+            chunk_size: If > 0, use chunked streaming to avoid loading entire
+                       file into memory. Set to e.g. 65536 for 64KB chunks.
+                       If 0 (default), reads entire stream into memory.
 
         Returns:
             IcapResponse object
@@ -277,10 +297,167 @@ class IcapClient:
             ...         response = client.scan_stream(f, filename='file.pdf')
             ...         if response.is_no_modification:
             ...             print("Stream is clean")
+
+            >>> # For large files, use chunked streaming:
+            >>> with open('large_file.bin', 'rb') as f:
+            ...     with IcapClient('localhost') as client:
+            ...         response = client.scan_stream(f, chunk_size=65536)
         """
+        if chunk_size > 0:
+            return self._scan_stream_chunked(stream, service, filename, chunk_size)
+
         content = stream.read()
         logger.info(f"Scanning stream ({len(content)} bytes){f' - {filename}' if filename else ''}")
         return self.scan_bytes(content, service=service, filename=filename)
+
+    def _scan_stream_chunked(
+        self,
+        stream: BinaryIO,
+        service: str,
+        filename: Optional[str],
+        chunk_size: int,
+    ) -> IcapResponse:
+        """
+        Scan a stream using chunked transfer encoding to avoid loading
+        the entire file into memory.
+
+        Args:
+            stream: File-like object to scan
+            service: ICAP service name
+            filename: Optional filename for HTTP headers
+            chunk_size: Size of chunks to read and send
+
+        Returns:
+            IcapResponse object
+        """
+        if not self._connected:
+            self.connect()
+
+        if self._socket is None:
+            raise IcapConnectionError("Not connected to ICAP server")
+
+        logger.info(f"Scanning stream in chunks of {chunk_size} bytes{f' - {filename}' if filename else ''}")
+
+        # Build ICAP request line and headers
+        request_line = (
+            f"RESPMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
+        )
+
+        # Build HTTP request headers (encapsulated)
+        resource = f"/{filename}" if filename else "/scan"
+        http_request = f"GET {resource} HTTP/1.1\r\nHost: file-scan\r\n\r\n".encode()
+
+        # Build HTTP response headers (we'll use chunked transfer encoding)
+        http_response_headers = (
+            f"HTTP/1.1 200 OK\r\n"
+            f"Content-Type: application/octet-stream\r\n"
+            f"Transfer-Encoding: chunked\r\n"
+            f"\r\n"
+        ).encode()
+
+        # Calculate encapsulated offsets
+        req_hdr_len = len(http_request)
+        res_hdr_len = len(http_response_headers)
+
+        icap_headers = {
+            "Host": f"{self.host}:{self.port}",
+            "User-Agent": "Python-ICAP-Client/1.0",
+            "Allow": "204",
+            "Encapsulated": f"req-hdr=0, res-hdr={req_hdr_len}, res-body={req_hdr_len + res_hdr_len}",
+        }
+
+        # Build and send ICAP headers
+        icap_request = self._build_request(request_line, icap_headers)
+        icap_request += http_request
+        icap_request += http_response_headers
+
+        try:
+            self._socket.sendall(icap_request)
+
+            # Stream the body in chunks
+            total_bytes = 0
+            for chunk in self._iter_chunks(stream, chunk_size):
+                # Send chunk size in hex followed by CRLF
+                chunk_header = f"{len(chunk):X}\r\n".encode()
+                self._socket.sendall(chunk_header)
+                self._socket.sendall(chunk)
+                self._socket.sendall(b"\r\n")
+                total_bytes += len(chunk)
+
+            # Send final zero-length chunk to indicate end
+            self._socket.sendall(b"0\r\n\r\n")
+            logger.debug(f"Sent {total_bytes} bytes in chunked encoding")
+
+            # Receive and parse response
+            return self._receive_response()
+
+        except socket.timeout as e:
+            raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
+        except OSError as e:
+            self._connected = False
+            raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
+
+    def _iter_chunks(self, stream: BinaryIO, chunk_size: int) -> Iterator[bytes]:
+        """Iterate over a stream in chunks."""
+        while True:
+            chunk = stream.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+    def _receive_response(self) -> IcapResponse:
+        """Receive and parse ICAP response from the socket."""
+        if self._socket is None:
+            raise IcapConnectionError("Not connected to ICAP server")
+
+        response_data = b""
+        header_end_marker = b"\r\n\r\n"
+
+        # Read until we get the complete headers
+        while header_end_marker not in response_data:
+            chunk = self._socket.recv(self.BUFFER_SIZE)
+            if not chunk:
+                break
+            response_data += chunk
+
+        # Parse headers to determine if there's a body
+        if header_end_marker in response_data:
+            header_section, body_start = response_data.split(header_end_marker, 1)
+            headers_str = header_section.decode("utf-8", errors="ignore")
+
+            content_length = None
+            for line in headers_str.split("\r\n")[1:]:
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    if key.strip().lower() == "content-length":
+                        content_length = int(value.strip())
+                        break
+
+            if content_length is not None:
+                response_data = header_section + header_end_marker
+                bytes_read = len(body_start)
+                response_data += body_start
+
+                while bytes_read < content_length:
+                    chunk = self._socket.recv(min(self.BUFFER_SIZE, content_length - bytes_read))
+                    if not chunk:
+                        break
+                    response_data += chunk
+                    bytes_read += len(chunk)
+
+        logger.debug(f"Received {len(response_data)} bytes from ICAP server")
+
+        try:
+            response = IcapResponse.parse(response_data)
+        except ValueError as e:
+            raise IcapProtocolError(f"Failed to parse ICAP response: {e}") from e
+
+        if 500 <= response.status_code < 600:
+            raise IcapServerError(
+                f"ICAP server error: {response.status_code} {response.status_message}"
+            )
+
+        return response
 
     def scan_bytes(
         self, data: bytes, service: str = "avscan", filename: Optional[str] = None
@@ -328,52 +505,81 @@ class IcapClient:
         return request.encode("utf-8")
 
     def _send_and_receive(self, request: bytes) -> IcapResponse:
-        """Send request and receive response."""
-        logger.debug(f"Sending {len(request)} bytes to ICAP server")
-        self._socket.sendall(request)
+        """Send request and receive response.
 
-        # Receive response headers first
-        response_data = b""
-        header_end_marker = b"\r\n\r\n"
+        Raises:
+            IcapConnectionError: If not connected or connection is lost.
+            IcapTimeoutError: If the operation times out.
+            IcapProtocolError: If the response cannot be parsed.
+            IcapServerError: If the server returns a 5xx error.
+        """
+        if self._socket is None:
+            raise IcapConnectionError("Not connected to ICAP server")
 
-        # Read until we get the complete headers
-        while header_end_marker not in response_data:
-            chunk = self._socket.recv(self.BUFFER_SIZE)
-            if not chunk:
-                break
-            response_data += chunk
+        try:
+            logger.debug(f"Sending {len(request)} bytes to ICAP server")
+            self._socket.sendall(request)
 
-        # Parse headers to determine if there's a body and how to read it
-        if header_end_marker in response_data:
-            header_section, body_start = response_data.split(header_end_marker, 1)
-            headers_str = header_section.decode("utf-8", errors="ignore")
+            # Receive response headers first
+            response_data = b""
+            header_end_marker = b"\r\n\r\n"
 
-            # Check for Content-Length header to know how much body to read
-            content_length = None
-            for line in headers_str.split("\r\n")[1:]:
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    if key.strip().lower() == "content-length":
-                        content_length = int(value.strip())
-                        break
+            # Read until we get the complete headers
+            while header_end_marker not in response_data:
+                chunk = self._socket.recv(self.BUFFER_SIZE)
+                if not chunk:
+                    break
+                response_data += chunk
 
-            # If we have Content-Length, read exactly that many bytes
-            if content_length is not None:
-                logger.debug(f"Reading {content_length} bytes of body content")
-                response_data = header_section + header_end_marker
-                bytes_read = len(body_start)
-                response_data += body_start
+            # Parse headers to determine if there's a body and how to read it
+            if header_end_marker in response_data:
+                header_section, body_start = response_data.split(header_end_marker, 1)
+                headers_str = header_section.decode("utf-8", errors="ignore")
 
-                while bytes_read < content_length:
-                    chunk = self._socket.recv(min(self.BUFFER_SIZE, content_length - bytes_read))
-                    if not chunk:
-                        break
-                    response_data += chunk
-                    bytes_read += len(chunk)
-            else:
-                # For responses without Content-Length (like 204), headers are enough
-                # Keep what we have
-                logger.debug("No Content-Length header, using headers only")
+                # Check for Content-Length header to know how much body to read
+                content_length = None
+                for line in headers_str.split("\r\n")[1:]:
+                    if ":" in line:
+                        key, value = line.split(":", 1)
+                        if key.strip().lower() == "content-length":
+                            content_length = int(value.strip())
+                            break
 
-        logger.debug(f"Received {len(response_data)} bytes from ICAP server")
-        return IcapResponse.parse(response_data)
+                # If we have Content-Length, read exactly that many bytes
+                if content_length is not None:
+                    logger.debug(f"Reading {content_length} bytes of body content")
+                    response_data = header_section + header_end_marker
+                    bytes_read = len(body_start)
+                    response_data += body_start
+
+                    while bytes_read < content_length:
+                        chunk = self._socket.recv(min(self.BUFFER_SIZE, content_length - bytes_read))
+                        if not chunk:
+                            break
+                        response_data += chunk
+                        bytes_read += len(chunk)
+                else:
+                    # For responses without Content-Length (like 204), headers are enough
+                    # Keep what we have
+                    logger.debug("No Content-Length header, using headers only")
+
+            logger.debug(f"Received {len(response_data)} bytes from ICAP server")
+
+        except socket.timeout as e:
+            raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
+        except OSError as e:
+            self._connected = False
+            raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
+
+        try:
+            response = IcapResponse.parse(response_data)
+        except ValueError as e:
+            raise IcapProtocolError(f"Failed to parse ICAP response: {e}") from e
+
+        # Check for server errors
+        if 500 <= response.status_code < 600:
+            raise IcapServerError(
+                f"ICAP server error: {response.status_code} {response.status_message}"
+            )
+
+        return response
