@@ -1,6 +1,12 @@
 import logging
 
-from .exception import IcapConnectionError, IcapException, IcapProtocolError, IcapTimeoutError
+from .exception import (
+    IcapConnectionError,
+    IcapException,
+    IcapProtocolError,
+    IcapServerError,
+    IcapTimeoutError,
+)
 from .icap import IcapClient
 from .response import IcapResponse
 
@@ -15,5 +21,6 @@ __all__ = [
     "IcapException",
     "IcapConnectionError",
     "IcapProtocolError",
+    "IcapServerError",
     "IcapTimeoutError",
 ]

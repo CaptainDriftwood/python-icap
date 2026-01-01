@@ -20,3 +20,9 @@ class IcapTimeoutError(IcapException):
     """Raised when ICAP request times out."""
 
     pass
+
+
+class IcapServerError(IcapException):
+    """Raised when ICAP server returns a 5xx error response."""
+
+    pass
