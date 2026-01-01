@@ -152,9 +152,9 @@ The initial implementation had several issues that have been corrected:
 4. **Response Parsing**: Complete IcapResponse class with status code, headers, and body parsing
 5. **Multiple Methods**: Implemented OPTIONS, REQMOD, and RESPMOD methods
 6. **Error Handling**: Added custom exceptions for better error reporting
-7. **Logging Support**: Integrated logging throughout for debugging and monitoring
-8. **Convenience Methods**: Added `scan_file()` and `scan_stream()` for easy file scanning
 7. **Encapsulated Header**: Proper calculation of encapsulated header offsets
+8. **Logging Support**: Integrated logging throughout for debugging and monitoring
+9. **Convenience Methods**: Added `scan_file()` and `scan_stream()` for easy file scanning
 
 ## Docker Integration Testing
 
