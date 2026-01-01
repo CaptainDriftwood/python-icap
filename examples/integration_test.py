@@ -9,6 +9,7 @@ Run this after starting the Docker services with docker-compose.
 import sys
 import time
 from pycap import IcapClient, IcapException
+from test_utils import EICAR_TEST_STRING
 
 
 def test_connection(host='localhost', port=1344, service='avscan'):
@@ -57,11 +58,8 @@ def test_eicar_virus(host='localhost', port=1344, service='avscan'):
     print("\nTest 3: Detect EICAR Test Virus")
     print("-" * 40)
     try:
-        # Standard EICAR test virus string
-        eicar = b'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
-        
         http_request = b"GET /virus.txt HTTP/1.1\r\nHost: test.local\r\n\r\n"
-        http_response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(eicar)}\r\n\r\n".encode() + eicar
+        http_response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(EICAR_TEST_STRING)}\r\n\r\n".encode() + EICAR_TEST_STRING
         
         with IcapClient(host, port) as client:
             response = client.respmod(service, http_request, http_response)

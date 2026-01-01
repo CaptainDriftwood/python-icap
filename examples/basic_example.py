@@ -4,6 +4,7 @@ Basic example of using the PyCap ICAP client.
 """
 
 from pycap import IcapClient
+from test_utils import EICAR_TEST_STRING
 
 
 def main():
@@ -48,11 +49,8 @@ def main():
     # Example 3: Scan EICAR test virus
     print("\n3. Scanning EICAR test virus...")
     try:
-        # EICAR test virus string (harmless test pattern recognized by AV software)
-        eicar = b'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
-        
         http_request = b"GET /test.txt HTTP/1.1\r\nHost: www.example.com\r\n\r\n"
-        http_response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(eicar)}\r\n\r\n".encode() + eicar
+        http_response = f"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {len(EICAR_TEST_STRING)}\r\n\r\n".encode() + EICAR_TEST_STRING
         
         with IcapClient(ICAP_HOST, ICAP_PORT) as client:
             response = client.respmod(SERVICE, http_request, http_response)

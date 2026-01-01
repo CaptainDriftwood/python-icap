@@ -192,7 +192,7 @@ class IcapClient:
         
         if http_body:
             # Add chunked body
-            chunk_size = f"{len(http_body):x}"
+            chunk_size = f"{len(http_body):X}"
             request += f"{chunk_size}{self.CRLF}".encode()
             request += http_body
             request += f"{self.CRLF}0{self.CRLF}{self.CRLF}".encode()
