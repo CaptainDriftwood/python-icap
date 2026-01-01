@@ -11,6 +11,14 @@ import pytest
 
 from pycap import IcapClient
 
+__all__ = [
+    "pytest_configure",
+    "icap_client",
+    "icap_service_config",
+    "sample_clean_content",
+    "sample_file",
+]
+
 
 def pytest_configure(config):
     """Register custom markers."""
