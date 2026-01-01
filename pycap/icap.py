@@ -280,20 +280,7 @@ class IcapClient:
         """
         content = stream.read()
         logger.info(f"Scanning stream ({len(content)} bytes){f' - {filename}' if filename else ''}")
-
-        # Build HTTP request headers
-        resource = f"/{filename}" if filename else "/scan"
-        http_request = f"GET {resource} HTTP/1.1\r\nHost: file-scan\r\n\r\n".encode()
-
-        # Build HTTP response with file content
-        http_response = (
-            f"HTTP/1.1 200 OK\r\n"
-            f"Content-Type: application/octet-stream\r\n"
-            f"Content-Length: {len(content)}\r\n"
-            f"\r\n"
-        ).encode() + content
-
-        return self.respmod(service, http_request, http_response)
+        return self.scan_bytes(content, service=service, filename=filename)
 
     def scan_bytes(
         self, data: bytes, service: str = "avscan", filename: Optional[str] = None

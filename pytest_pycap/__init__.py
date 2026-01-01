@@ -44,11 +44,12 @@ def icap_client(request) -> Generator[IcapClient, None, None]:
 
     client = IcapClient(config["host"], port=config["port"], timeout=config["timeout"])
 
-    client.connect()
-
-    yield client
-
-    client.disconnect()
+    try:
+        client.connect()
+        yield client
+    finally:
+        if client._connected:
+            client.disconnect()
 
 
 @pytest.fixture

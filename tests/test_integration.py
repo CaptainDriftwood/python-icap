@@ -2,6 +2,7 @@
 Integration tests for PyCap using testcontainers.
 """
 
+import time
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,6 @@ def icap_service():
 
     with DockerCompose(str(docker_path), compose_file_name="docker-compose.yml"):
         # Wait for services to be ready
-        import time
-
         time.sleep(30)  # Give services time to initialize
 
         yield {"host": "localhost", "port": 1344, "service": "avscan"}
