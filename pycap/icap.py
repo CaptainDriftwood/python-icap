@@ -63,7 +63,7 @@ class IcapClient:
         if self._socket:
             try:
                 self._socket.close()
-            except:
+            except Exception:
                 pass
             self._socket = None
         self._connected = False
@@ -192,7 +192,7 @@ class IcapClient:
         
         if http_body:
             # Add chunked body
-            chunk_size = hex(len(http_body))[2:]
+            chunk_size = f"{len(http_body):x}"
             request += f"{chunk_size}{self.CRLF}".encode()
             request += http_body
             request += f"{self.CRLF}0{self.CRLF}{self.CRLF}".encode()
@@ -211,19 +211,46 @@ class IcapClient:
         """Send request and receive response."""
         self._socket.sendall(request)
         
-        # Receive response
+        # Receive response headers first
         response_data = b""
-        while True:
+        header_end_marker = b"\r\n\r\n"
+        
+        # Read until we get the complete headers
+        while header_end_marker not in response_data:
             chunk = self._socket.recv(self.BUFFER_SIZE)
             if not chunk:
                 break
             response_data += chunk
+        
+        # Parse headers to determine if there's a body and how to read it
+        if header_end_marker in response_data:
+            header_section, body_start = response_data.split(header_end_marker, 1)
+            headers_str = header_section.decode('utf-8', errors='ignore')
             
-            # Check if we have received the complete response
-            # Simple check: if we have headers and body
-            if b"\r\n\r\n" in response_data:
-                # For now, we'll do a simple check
-                # A more robust implementation would parse Content-Length or chunked encoding
-                break
+            # Check for Content-Length header to know how much body to read
+            content_length = None
+            for line in headers_str.split('\r\n')[1:]:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    if key.strip().lower() == 'content-length':
+                        content_length = int(value.strip())
+                        break
+            
+            # If we have Content-Length, read exactly that many bytes
+            if content_length is not None:
+                response_data = header_section + header_end_marker
+                bytes_read = len(body_start)
+                response_data += body_start
+                
+                while bytes_read < content_length:
+                    chunk = self._socket.recv(min(self.BUFFER_SIZE, content_length - bytes_read))
+                    if not chunk:
+                        break
+                    response_data += chunk
+                    bytes_read += len(chunk)
+            else:
+                # For responses without Content-Length (like 204), headers are enough
+                # Keep what we have
+                pass
         
         return IcapResponse.parse(response_data)
