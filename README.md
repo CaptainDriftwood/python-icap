@@ -23,7 +23,6 @@ A pure Python ICAP (Internet Content Adaptation Protocol) client with no externa
 - [Logging](#logging)
 - [Error Handling](#error-handling)
 - [Testing Virus Detection with EICAR](#testing-virus-detection-with-eicar)
-- [Key Improvements from Initial Implementation](#key-improvements-from-initial-implementation)
 - [Docker Integration Testing](#docker-integration-testing)
   - [Docker Services](#docker-services)
 - [Development](#development)
@@ -325,20 +324,6 @@ with IcapClient('localhost', port=1344) as client:
     eicar_response = client.scan_bytes(EICAR, filename="eicar.com")
     print(f"EICAR file: {'CLEAN' if eicar_response.is_no_modification else 'DETECTED'}")
 ```
-
-## Key Improvements from Initial Implementation
-
-The initial implementation had several issues that have been corrected:
-
-1. **Socket Connection**: Changed from `bind()` to `connect()` - clients should connect to servers, not bind to ports
-2. **Proper ICAP Protocol**: Implemented full ICAP request/response handling according to RFC 3507
-3. **Context Manager**: Added `__enter__` and `__exit__` for proper resource management
-4. **Response Parsing**: Complete IcapResponse class with status code, headers, and body parsing
-5. **Multiple Methods**: Implemented OPTIONS, REQMOD, and RESPMOD methods
-6. **Error Handling**: Added custom exceptions for better error reporting
-7. **Encapsulated Header**: Proper calculation of encapsulated header offsets
-8. **Logging Support**: Integrated logging throughout for debugging and monitoring
-9. **Convenience Methods**: Added `scan_file()` and `scan_stream()` for easy file scanning
 
 ## Docker Integration Testing
 
