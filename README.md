@@ -1,6 +1,6 @@
 # PyCap - Python ICAP Client
 
-A Python implementation of the ICAP (Internet Content Adaptation Protocol) client based on [RFC 3507](https://www.rfc-editor.org/rfc/rfc3507).
+A pure Python ICAP (Internet Content Adaptation Protocol) client with no external dependencies. Implements the full RFC 3507 specification for communicating with ICAP servers like c-icap and SquidClamav.
 
 ## Table of Contents
 
