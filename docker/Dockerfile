@@ -6,12 +6,27 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install dependencies
 RUN apt-get update && apt-get install -y \
     c-icap \
-    c-icap-mod-virus-scan \
+    libicapapi-dev \
     clamav \
     clamav-daemon \
-    squidclamav \
+    libclamav-dev \
     wget \
+    curl \
+    build-essential \
+    netcat \
     && rm -rf /var/lib/apt/lists/*
+
+# Build and install squidclamav from source
+RUN curl -L -o /tmp/squidclamav-7.2.tar.gz https://github.com/darold/squidclamav/archive/refs/tags/v7.2.tar.gz && \
+    cd /tmp && \
+    tar xzf squidclamav-7.2.tar.gz && \
+    cd squidclamav-7.2 && \
+    ./configure --with-c-icap && \
+    make && \
+    make install && \
+    rm -rf /tmp/squidclamav-7.2 /tmp/squidclamav-7.2.tar.gz && \
+    mkdir -p /usr/local/lib/c_icap && \
+    ln -sf /usr/lib/$(uname -m)-linux-gnu/c_icap/squidclamav.so /usr/local/lib/c_icap/squidclamav.so
 
 # Configure ClamAV
 RUN mkdir -p /var/run/clamav && \
