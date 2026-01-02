@@ -89,7 +89,13 @@ This implementation is based on the [net-icap](https://github.com/cattywampus/ne
 
 ## Installation
 
+> **Note:** This package is not yet published to PyPI due to a name collision. Install directly from the source.
+
 ```bash
+# Standard installation
+pip install .
+
+# Development installation (editable)
 pip install -e .
 ```
 
@@ -233,6 +239,61 @@ with IcapClient('localhost') as client:
     response = client.scan_file('/path/to/file.pdf')
 ```
 
+## Error Handling
+
+The library provides specific exceptions for different failure modes:
+
+```python
+from pycap import IcapClient
+from pycap.exception import (
+    IcapException,
+    IcapConnectionError,
+    IcapTimeoutError,
+    IcapProtocolError,
+    IcapServerError,
+)
+
+try:
+    with IcapClient('localhost', port=1344) as client:
+        response = client.scan_file('/path/to/file.pdf')
+
+        if response.is_no_modification:
+            print("File is clean")
+        else:
+            print("Threat detected")
+
+except IcapConnectionError as e:
+    print(f"Failed to connect to ICAP server: {e}")
+except IcapTimeoutError as e:
+    print(f"Request timed out: {e}")
+except IcapProtocolError as e:
+    print(f"Protocol error: {e}")
+except IcapServerError as e:
+    print(f"Server error (5xx): {e}")
+except IcapException as e:
+    print(f"ICAP error: {e}")
+```
+
+## Testing Virus Detection with EICAR
+
+The [EICAR test string](https://www.eicar.org/download-anti-malware-testfile/) is a standard way to test antivirus detection without using actual malware:
+
+```python
+from pycap import IcapClient
+
+# EICAR test string - triggers antivirus detection
+EICAR = b'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+
+with IcapClient('localhost', port=1344) as client:
+    # Test with clean content - should return 204 No Modification
+    clean_response = client.scan_bytes(b"Hello, World!", filename="clean.txt")
+    print(f"Clean file: {'CLEAN' if clean_response.is_no_modification else 'DETECTED'}")
+
+    # Test with EICAR - should be detected as a threat
+    eicar_response = client.scan_bytes(EICAR, filename="eicar.com")
+    print(f"EICAR file: {'CLEAN' if eicar_response.is_no_modification else 'DETECTED'}")
+```
+
 ## Key Improvements from Initial Implementation
 
 The initial implementation had several issues that have been corrected:
@@ -253,7 +314,7 @@ For integration testing with a real ICAP server (c-icap with ClamAV), use the pr
 
 ```bash
 # Start ICAP server with ClamAV
-docker-compose up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # Wait for services to initialize
 sleep 10
@@ -262,7 +323,20 @@ sleep 10
 python examples/integration_test.py
 
 # Stop services
-docker-compose down
+docker compose -f docker/docker-compose.yml down
+```
+
+Or if you have [just](https://just.systems/) installed:
+
+```bash
+# Start ICAP server
+just docker-up
+
+# Run integration tests
+just test-integration
+
+# Stop services
+just docker-down
 ```
 
 ### Docker Services
@@ -276,7 +350,7 @@ See `docker/` directory for configuration details.
 
 ## Development
 
-This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management and [just](https://just.systems/) as a command runner.
 
 ### Setup
 
@@ -292,6 +366,16 @@ uv run ruff check
 
 # Run type checker
 uv run pyright
+```
+
+Or using just (run `just` to see all available commands):
+
+```bash
+just install      # Install dependencies
+just test         # Run unit tests
+just lint         # Run linter
+just typecheck    # Run type checker
+just ci           # Run full CI checks (fmt, lint, typecheck, test)
 ```
 
 ### Project Structure
@@ -322,7 +406,3 @@ pycap/
 ## License
 
 MIT License
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
