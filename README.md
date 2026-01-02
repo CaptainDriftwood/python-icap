@@ -1,6 +1,6 @@
 # PyCap - Python ICAP Client
 
-A Python implementation of the ICAP (Internet Content Adaptation Protocol) client based on RFC 3507.
+A Python implementation of the ICAP (Internet Content Adaptation Protocol) client based on [RFC 3507](https://www.rfc-editor.org/rfc/rfc3507).
 
 ## Overview
 
@@ -10,6 +10,82 @@ PyCap is a Python library for communicating with ICAP servers. It supports the s
 - **RESPMOD** - Response modification mode (scan/modify HTTP responses)
 
 This implementation is based on the [net-icap](https://github.com/cattywampus/net-icap) repository patterns.
+
+## What is ICAP?
+
+**ICAP (Internet Content Adaptation Protocol)** is a lightweight protocol for performing "remote procedure calls" on HTTP messages. It enables content transformation and filtering at network edges rather than requiring all processing through centralized servers.
+
+### How ICAP Works
+
+```
+┌──────────┐     HTTP Request      ┌──────────────┐    ICAP Request    ┌─────────────┐
+│  Client  │ ──────────────────▶   │  HTTP Proxy  │ ────────────────▶  │ ICAP Server │
+│          │                       │  (e.g. Squid)│                    │ (e.g. c-icap│
+│          │                       │              │ ◀────────────────  │  + ClamAV)  │
+│          │ ◀──────────────────   │              │    ICAP Response   │             │
+└──────────┘     HTTP Response     └──────────────┘    (modified/clean)└─────────────┘
+```
+
+1. **Client** sends HTTP request to a **proxy server**
+2. **Proxy** forwards the request/response to an **ICAP server** for inspection
+3. **ICAP server** scans, modifies, or approves the content
+4. **Proxy** returns the (possibly modified) response to the client
+
+### ICAP Methods
+
+| Method | Description | Use Case |
+|--------|-------------|----------|
+| **OPTIONS** | Query server capabilities | Check what services are available, preview sizes, etc. |
+| **REQMOD** | Request Modification | Scan uploads, filter outbound requests, access control |
+| **RESPMOD** | Response Modification | Virus scanning, content filtering, ad insertion, language translation |
+
+### Common Use Cases
+
+- **Antivirus scanning** - Scan downloads for malware (ClamAV, Sophos, etc.)
+- **Content filtering** - Block inappropriate content, enforce policies
+- **Data Loss Prevention (DLP)** - Scan uploads for sensitive data
+- **Ad insertion** - Insert advertisements into cached content
+- **Format conversion** - Adapt content for mobile devices
+
+## ICAP Servers and Tools
+
+### c-icap
+
+[c-icap](https://c-icap.sourceforge.net/) is the most popular open-source ICAP server implementation. It provides:
+
+- Full ICAP protocol support (RFC 3507)
+- Plugin architecture for custom services
+- ICAP over TLS support
+- C API for developing content adaptation services
+
+**Resources:**
+- [Official Website](https://c-icap.sourceforge.net/)
+- [GitHub Repository](https://github.com/c-icap/c-icap-server)
+- [Documentation](https://c-icap.sourceforge.net/documentation.html)
+- [Configuration Wiki](https://sourceforge.net/p/c-icap/wiki/configcicap/)
+
+### SquidClamav
+
+[SquidClamav](https://squidclamav.darold.net/) is a dedicated ClamAV antivirus service for ICAP. It provides:
+
+- High-performance virus scanning for HTTP traffic
+- Integration with ClamAV and Google Safe Browsing
+- Configurable file type and content-type filtering
+- Failover support for multiple ClamAV servers
+
+**Resources:**
+- [Official Website](https://squidclamav.darold.net/)
+- [Documentation](https://squidclamav.darold.net/documentation.html)
+- [GitHub Repository](https://github.com/darold/squidclamav)
+
+### ClamAV
+
+[ClamAV](https://www.clamav.net/) is an open-source antivirus engine used by SquidClamav:
+
+- Regular virus definition updates
+- Supports multiple file formats and archives
+- clamd daemon for high-performance scanning
+- Google Safe Browsing database integration
 
 ## Installation
 
@@ -200,10 +276,22 @@ See `docker/` directory for configuration details.
 
 ## Development
 
-### Running Tests
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management.
+
+### Setup
 
 ```bash
-python -m pytest tests/
+# Install dependencies
+uv sync --all-extras
+
+# Run tests
+uv run pytest
+
+# Run linter
+uv run ruff check
+
+# Run type checker
+uv run pyright
 ```
 
 ### Project Structure
@@ -214,15 +302,15 @@ pycap/
 │   ├── __init__.py       # Package exports
 │   ├── icap.py           # Main ICAP client
 │   ├── response.py       # Response handling
-│   ├── exception.py      # Custom exceptions
-│   └── request.py        # Request utilities (future)
+│   └── exception.py      # Custom exceptions
+├── pytest_pycap/         # Pytest plugin for ICAP testing
 ├── tests/                # Unit tests
 ├── examples/             # Usage examples
-├── docker/               # Docker setup for testing
+├── docker/               # Docker setup for integration testing
 │   ├── Dockerfile
 │   └── docker-compose.yml
-├── setup.py
-└── README.md
+├── pyproject.toml        # Project configuration
+└── uv.lock               # Locked dependencies
 ```
 
 ## Protocol Reference

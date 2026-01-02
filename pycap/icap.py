@@ -140,7 +140,7 @@ class IcapClient:
         Args:
             service: ICAP service name
             http_request: Original HTTP request headers
-            http_response: HTTP response to be scanned/modified
+            http_response: HTTP response to be scanned/modified (headers + body)
             headers: Additional ICAP headers
 
         Returns:
@@ -154,10 +154,19 @@ class IcapClient:
             f"RESPMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
         )
 
-        # Build encapsulated header offsets
-        req_hdr = len(http_request) if http_request else 0
-        res_hdr = req_hdr
-        res_body = res_hdr + len(http_response.split(b"\r\n\r\n", 1)[0]) + 4
+        # Split HTTP response into headers and body
+        if b"\r\n\r\n" in http_response:
+            http_res_headers, http_res_body = http_response.split(b"\r\n\r\n", 1)
+            http_res_headers += b"\r\n\r\n"  # Include the separator
+        else:
+            http_res_headers = http_response
+            http_res_body = b""
+
+        # Calculate encapsulated header offsets (relative to start of encapsulated body)
+        # Per RFC 3507: offsets mark where each section begins in the message body
+        req_hdr_len = len(http_request) if http_request else 0
+        res_hdr_offset = req_hdr_len
+        res_body_offset = res_hdr_offset + len(http_res_headers)
 
         icap_headers = {
             "Host": f"{self.host}:{self.port}",
@@ -166,19 +175,31 @@ class IcapClient:
         }
 
         if http_request:
-            icap_headers["Encapsulated"] = f"req-hdr=0, res-hdr={req_hdr}, res-body={res_body}"
+            icap_headers["Encapsulated"] = (
+                f"req-hdr=0, res-hdr={res_hdr_offset}, res-body={res_body_offset}"
+            )
         else:
-            icap_headers["Encapsulated"] = f"res-hdr=0, res-body={res_body}"
+            icap_headers["Encapsulated"] = f"res-hdr=0, res-body={len(http_res_headers)}"
 
         if headers:
             icap_headers.update(headers)
 
         request = self._build_request(request_line, icap_headers)
 
-        # Add HTTP headers and body
+        # Add encapsulated headers (NOT chunked per RFC 3507)
         if http_request:
             request += http_request
-        request += http_response
+        request += http_res_headers
+
+        # Add encapsulated body with chunked transfer encoding (REQUIRED per RFC 3507)
+        if http_res_body:
+            chunk_size = f"{len(http_res_body):X}{self.CRLF}"
+            request += chunk_size.encode()
+            request += http_res_body
+            request += f"{self.CRLF}".encode()
+
+        # Terminating zero-length chunk
+        request += f"0{self.CRLF}{self.CRLF}".encode()
 
         response = self._send_and_receive(request)
         logger.debug(f"RESPMOD response: {response.status_code} {response.status_message}")
@@ -536,17 +557,21 @@ class IcapClient:
                 header_section, body_start = response_data.split(header_end_marker, 1)
                 headers_str = header_section.decode("utf-8", errors="ignore")
 
-                # Check for Content-Length header to know how much body to read
+                # Parse headers into dict for easier lookup
                 content_length = None
+                is_chunked = False
                 for line in headers_str.split("\r\n")[1:]:
                     if ":" in line:
                         key, value = line.split(":", 1)
-                        if key.strip().lower() == "content-length":
+                        key_lower = key.strip().lower()
+                        value_stripped = value.strip().lower()
+                        if key_lower == "content-length":
                             content_length = int(value.strip())
-                            break
+                        elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
+                            is_chunked = True
 
-                # If we have Content-Length, read exactly that many bytes
                 if content_length is not None:
+                    # Read exactly Content-Length bytes
                     logger.debug(f"Reading {content_length} bytes of body content")
                     response_data = header_section + header_end_marker
                     bytes_read = len(body_start)
@@ -558,9 +583,16 @@ class IcapClient:
                             break
                         response_data += chunk
                         bytes_read += len(chunk)
+
+                elif is_chunked:
+                    # Read chunked transfer encoding
+                    logger.debug("Reading chunked response body")
+                    response_data = header_section + header_end_marker
+                    chunked_body = self._read_chunked_body(body_start)
+                    response_data += chunked_body
+
                 else:
                     # For responses without Content-Length (like 204), headers are enough
-                    # Keep what we have
                     logger.debug("No Content-Length header, using headers only")
 
             logger.debug(f"Received {len(response_data)} bytes from ICAP server")
@@ -583,3 +615,52 @@ class IcapClient:
             )
 
         return response
+
+    def _read_chunked_body(self, initial_data: bytes) -> bytes:
+        """Read a chunked transfer encoded body from the socket.
+
+        Args:
+            initial_data: Any data already read after the headers
+
+        Returns:
+            The decoded (de-chunked) body content
+        """
+        if self._socket is None:
+            raise IcapConnectionError("Not connected to ICAP server")
+
+        buffer = initial_data
+        body = b""
+
+        while True:
+            # Ensure we have enough data to read the chunk size line
+            while b"\r\n" not in buffer:
+                chunk = self._socket.recv(self.BUFFER_SIZE)
+                if not chunk:
+                    return body  # Connection closed
+                buffer += chunk
+
+            # Parse chunk size (hex)
+            size_line, buffer = buffer.split(b"\r\n", 1)
+            try:
+                # Chunk size may have extensions after semicolon, ignore them
+                chunk_size = int(size_line.split(b";")[0].strip(), 16)
+            except ValueError:
+                logger.warning(f"Invalid chunk size: {size_line}")
+                return body
+
+            if chunk_size == 0:
+                # Final chunk - read trailing CRLF
+                break
+
+            # Read chunk data
+            while len(buffer) < chunk_size + 2:  # +2 for trailing CRLF
+                chunk = self._socket.recv(self.BUFFER_SIZE)
+                if not chunk:
+                    return body
+                buffer += chunk
+
+            # Extract chunk data (excluding trailing CRLF)
+            body += buffer[:chunk_size]
+            buffer = buffer[chunk_size + 2:]  # Skip chunk data and CRLF
+
+        return body

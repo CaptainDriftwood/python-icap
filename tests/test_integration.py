@@ -12,17 +12,53 @@ from examples.test_utils import EICAR_TEST_STRING
 from pycap import IcapClient
 
 
+def wait_for_icap_service(
+    host: str, port: int, service: str, timeout: int = 60, interval: float = 2.0
+) -> None:
+    """
+    Wait for ICAP service to be ready by polling with OPTIONS requests.
+
+    Args:
+        host: ICAP server host
+        port: ICAP server port
+        service: ICAP service name
+        timeout: Maximum time to wait in seconds
+        interval: Time between retries in seconds
+
+    Raises:
+        TimeoutError: If service doesn't become ready within timeout
+    """
+    start_time = time.time()
+    last_error = None
+
+    while time.time() - start_time < timeout:
+        try:
+            with IcapClient(host, port, timeout=5) as client:
+                response = client.options(service)
+                if response.is_success:
+                    return  # Service is ready
+        except Exception as e:
+            last_error = e
+
+        time.sleep(interval)
+
+    raise TimeoutError(
+        f"ICAP service at {host}:{port}/{service} not ready after {timeout}s. "
+        f"Last error: {last_error}"
+    )
+
+
 @pytest.fixture(scope="module")
 def icap_service():
     """Start ICAP service using docker-compose."""
-    # Get the path to the docker directory
     docker_path = Path(__file__).parent.parent / "docker"
+    config = {"host": "localhost", "port": 1344, "service": "avscan"}
 
     with DockerCompose(str(docker_path), compose_file_name="docker-compose.yml"):
-        # Wait for services to be ready
-        time.sleep(30)  # Give services time to initialize
+        # Wait for ICAP service to be ready (polls until OPTIONS succeeds)
+        wait_for_icap_service(config["host"], config["port"], config["service"])
 
-        yield {"host": "localhost", "port": 1344, "service": "avscan"}
+        yield config
 
 
 @pytest.mark.integration
