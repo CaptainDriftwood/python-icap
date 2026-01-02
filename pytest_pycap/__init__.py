@@ -5,14 +5,15 @@ This plugin provides fixtures and helpers for testing ICAP clients.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Generator
+from typing import Any, AsyncGenerator, Dict, Generator
 
 import pytest
 
-from pycap import IcapClient
+from pycap import AsyncIcapClient, IcapClient
 
 __all__ = [
     "pytest_configure",
+    "async_icap_client",
     "icap_client",
     "icap_service_config",
     "sample_clean_content",
@@ -58,6 +59,40 @@ def icap_client(request) -> Generator[IcapClient, None, None]:
     finally:
         if client._connected:
             client.disconnect()
+
+
+@pytest.fixture
+async def async_icap_client(request) -> AsyncGenerator[AsyncIcapClient, None]:
+    """
+    Provide an async ICAP client for testing.
+
+    The client configuration can be customized using pytest markers:
+
+    @pytest.mark.icap(host='localhost', port=1344)
+    async def test_something(async_icap_client):
+        response = await async_icap_client.options('avscan')
+        assert response.is_success
+    """
+    marker = request.node.get_closest_marker("icap")
+
+    # Default configuration
+    config = {
+        "host": "localhost",
+        "port": 1344,
+        "timeout": 10.0,
+    }
+
+    # Override with marker kwargs if provided
+    if marker and marker.kwargs:
+        config.update(marker.kwargs)
+
+    # Use async context manager for proper cleanup
+    async with AsyncIcapClient(
+        config["host"],
+        port=config["port"],
+        timeout=config["timeout"],
+    ) as client:
+        yield client
 
 
 @pytest.fixture

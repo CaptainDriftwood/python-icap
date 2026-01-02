@@ -484,11 +484,12 @@ PyCap includes a pytest plugin (`pytest_pycap`) that provides fixtures for testi
 | Fixture | Description |
 |---------|-------------|
 | `icap_client` | Pre-connected `IcapClient` instance. Configurable via `@pytest.mark.icap` marker. |
+| `async_icap_client` | Pre-connected `AsyncIcapClient` instance for async tests. Configurable via `@pytest.mark.icap` marker. |
 | `icap_service_config` | Default ICAP service configuration dict (host, port, service). |
 | `sample_clean_content` | Sample clean bytes content for testing. |
 | `sample_file` | Temporary sample file (Path) for testing file scanning. |
 
-**Usage:**
+**Sync Usage:**
 
 ```python
 import pytest
@@ -508,6 +509,23 @@ def test_custom_server(icap_client):
 def test_scan_content(icap_client, sample_clean_content):
     response = icap_client.scan_bytes(sample_clean_content)
     assert response.is_no_modification
+```
+
+**Async Usage:**
+
+```python
+import pytest
+
+# Basic async usage
+async def test_async_scan(async_icap_client, sample_file):
+    response = await async_icap_client.scan_file(sample_file)
+    assert response.is_no_modification
+
+# Custom configuration via marker (same marker works for both sync and async)
+@pytest.mark.icap(host='icap.example.com', port=1344)
+async def test_async_custom_server(async_icap_client):
+    response = await async_icap_client.options('avscan')
+    assert response.is_success
 ```
 
 The plugin is automatically registered when PyCap is installed (via the `pytest11` entry point).
