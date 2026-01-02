@@ -2,6 +2,38 @@
 
 A Python implementation of the ICAP (Internet Content Adaptation Protocol) client based on [RFC 3507](https://www.rfc-editor.org/rfc/rfc3507).
 
+## Table of Contents
+
+- [Overview](#overview)
+- [What is ICAP?](#what-is-icap)
+  - [How ICAP Works](#how-icap-works)
+  - [ICAP Methods](#icap-methods)
+  - [Common Use Cases](#common-use-cases)
+- [ICAP Servers and Tools](#icap-servers-and-tools)
+  - [c-icap](#c-icap)
+  - [SquidClamav](#squidclamav)
+  - [ClamAV](#clamav)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Basic Example](#basic-example)
+  - [Using Context Manager](#using-context-manager)
+  - [Scanning Content with RESPMOD](#scanning-content-with-respmod)
+  - [Scanning Files](#scanning-files)
+  - [Manual File Scanning (lower-level API)](#manual-file-scanning-lower-level-api)
+- [Logging](#logging)
+- [Error Handling](#error-handling)
+- [Testing Virus Detection with EICAR](#testing-virus-detection-with-eicar)
+- [Key Improvements from Initial Implementation](#key-improvements-from-initial-implementation)
+- [Docker Integration Testing](#docker-integration-testing)
+  - [Docker Services](#docker-services)
+- [Development](#development)
+  - [Setup](#setup)
+  - [Project Structure](#project-structure)
+- [Pytest Plugin](#pytest-plugin)
+  - [Available Fixtures](#available-fixtures)
+- [Protocol Reference](#protocol-reference)
+- [License](#license)
+
 ## Overview
 
 PyCap is a Python library for communicating with ICAP servers. It supports the standard ICAP methods:
@@ -396,6 +428,43 @@ pycap/
 ├── pyproject.toml        # Project configuration
 └── uv.lock               # Locked dependencies
 ```
+
+## Pytest Plugin
+
+PyCap includes a pytest plugin (`pytest_pycap`) that provides fixtures for testing ICAP integrations.
+
+### Available Fixtures
+
+| Fixture | Description |
+|---------|-------------|
+| `icap_client` | Pre-connected `IcapClient` instance. Configurable via `@pytest.mark.icap` marker. |
+| `icap_service_config` | Default ICAP service configuration dict (host, port, service). |
+| `sample_clean_content` | Sample clean bytes content for testing. |
+| `sample_file` | Temporary sample file (Path) for testing file scanning. |
+
+**Usage:**
+
+```python
+import pytest
+
+# Basic usage - uses default localhost:1344
+def test_scan_clean_file(icap_client, sample_file):
+    response = icap_client.scan_file(sample_file)
+    assert response.is_no_modification
+
+# Custom configuration via marker
+@pytest.mark.icap(host='icap.example.com', port=1344)
+def test_custom_server(icap_client):
+    response = icap_client.options('avscan')
+    assert response.is_success
+
+# Using sample content
+def test_scan_content(icap_client, sample_clean_content):
+    response = icap_client.scan_bytes(sample_clean_content)
+    assert response.is_no_modification
+```
+
+The plugin is automatically registered when PyCap is installed (via the `pytest11` entry point).
 
 ## Protocol Reference
 
