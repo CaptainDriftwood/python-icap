@@ -1,22 +1,18 @@
-FROM ubuntu:22.04
+# Stage 1: Build squidclamav from source
+FROM ubuntu:22.04 AS builder
 
-# Avoid interactive prompts during build
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     c-icap \
     libicapapi-dev \
-    clamav \
-    clamav-daemon \
     libclamav-dev \
-    wget \
     curl \
     build-essential \
-    netcat \
     && rm -rf /var/lib/apt/lists/*
 
-# Build and install squidclamav from source
+# Build squidclamav v7.2 from source
 RUN curl -L -o /tmp/squidclamav-7.2.tar.gz https://github.com/darold/squidclamav/archive/refs/tags/v7.2.tar.gz && \
     cd /tmp && \
     tar xzf squidclamav-7.2.tar.gz && \
@@ -24,9 +20,27 @@ RUN curl -L -o /tmp/squidclamav-7.2.tar.gz https://github.com/darold/squidclamav
     ./configure --with-c-icap && \
     make && \
     make install && \
-    rm -rf /tmp/squidclamav-7.2 /tmp/squidclamav-7.2.tar.gz && \
-    mkdir -p /usr/local/lib/c_icap && \
-    ln -sf /usr/lib/$(uname -m)-linux-gnu/c_icap/squidclamav.so /usr/local/lib/c_icap/squidclamav.so
+    rm -rf /tmp/squidclamav-7.2 /tmp/squidclamav-7.2.tar.gz
+
+# Stage 2: Runtime image
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    c-icap \
+    clamav \
+    clamav-daemon \
+    clamav-freshclam \
+    ca-certificates \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy compiled squidclamav module from builder
+COPY --from=builder /usr/lib/*-linux-gnu/c_icap/squidclamav.so /usr/local/lib/c_icap/
+COPY --from=builder /usr/share/c_icap/templates/squidclamav /usr/share/c_icap/templates/squidclamav
 
 # Configure ClamAV
 RUN mkdir -p /var/run/clamav && \
@@ -44,18 +58,14 @@ RUN mkdir -p /var/run/clamav && \
 RUN mkdir -p /var/run/c-icap /var/log/c-icap && \
     chown -R c-icap:c-icap /var/run/c-icap /var/log/c-icap
 
-# Copy c-icap configuration
+# Copy configuration files
 COPY c-icap.conf /etc/c-icap/c-icap.conf
-
-# Copy squidclamav configuration
 COPY squidclamav.conf /etc/c-icap/squidclamav.conf
 
 # Copy startup script
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
-# Expose ICAP port
 EXPOSE 1344
 
-# Start services
 CMD ["/start.sh"]
