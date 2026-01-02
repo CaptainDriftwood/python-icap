@@ -1,5 +1,29 @@
 """
 Integration tests for PyCap using testcontainers.
+
+Wait Strategy Note:
+    testcontainers emits a DeprecationWarning recommending migration from
+    @wait_container_is_ready to structured wait strategies like
+    HealthcheckWaitStrategy. However, these new strategies have a bug with
+    DockerCompose containers:
+
+    - HealthcheckWaitStrategy accesses `wrapped.attrs.get("State", {}).get("Health", {})`
+    - This assumes a Docker SDK container object with an `attrs` attribute
+    - ComposeContainer.get_wrapped_container() returns a ComposeContainer, not a
+      Docker SDK container, causing: AttributeError: 'ComposeContainer' object
+      has no attribute 'attrs'
+
+    Relevant GitHub issues:
+    - https://github.com/testcontainers/testcontainers-python/issues/241
+      (Open since 2022: "Add wait_for_healthcheck method to DockerCompose")
+    - https://github.com/testcontainers/testcontainers-python/issues/144
+      (Similar pattern: wait_for_logs failed with DockerCompose)
+
+    Workaround:
+    We filter the deprecation warning in pyproject.toml and use our own
+    ICAP-level polling via wait_for_icap_service() for reliable service
+    readiness detection. This approach is actually more robust as it verifies
+    the ICAP protocol is responding, not just that the container is healthy.
 """
 
 import time
@@ -57,7 +81,6 @@ def icap_service():
     with DockerCompose(str(docker_path), compose_file_name="docker-compose.yml"):
         # Wait for ICAP service to be ready (polls until OPTIONS succeeds)
         wait_for_icap_service(config["host"], config["port"], config["service"])
-
         yield config
 
 

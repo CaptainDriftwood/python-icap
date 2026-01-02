@@ -56,6 +56,10 @@ markers = [
 ]
 timeout = 120  # Default timeout for all tests (seconds)
 timeout_method = "thread"  # Use thread-based timeout for better compatibility
+filterwarnings = [
+    # Ignore deprecation warning from testcontainers internals
+    "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
+]
 
 [tool.ruff]
 line-length = 100
