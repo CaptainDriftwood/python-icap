@@ -29,12 +29,14 @@ lint:
 lint-fix:
     uv run ruff check --fix .
 
-# Format code
+# Format code (includes import sorting)
 fmt:
+    uv run ruff check --fix --select I .
     uv run ruff format .
 
 # Check formatting without making changes
 fmt-check:
+    uv run ruff check --select I .
     uv run ruff format --check .
 
 # Run type checker

@@ -75,6 +75,9 @@ ignore = [
     "E501", # line too long, handled by formatter
 ]
 
+[tool.ruff.lint.isort]
+known-first-party = ["pycap"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

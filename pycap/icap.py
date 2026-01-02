@@ -357,7 +357,9 @@ class IcapClient:
         if self._socket is None:
             raise IcapConnectionError("Not connected to ICAP server")
 
-        logger.info(f"Scanning stream in chunks of {chunk_size} bytes{f' - {filename}' if filename else ''}")
+        logger.info(
+            f"Scanning stream in chunks of {chunk_size} bytes{f' - {filename}' if filename else ''}"
+        )
 
         # Build ICAP request line and headers
         request_line = (
@@ -370,11 +372,11 @@ class IcapClient:
 
         # Build HTTP response headers (we'll use chunked transfer encoding)
         http_response_headers = (
-            f"HTTP/1.1 200 OK\r\n"
-            f"Content-Type: application/octet-stream\r\n"
-            f"Transfer-Encoding: chunked\r\n"
-            f"\r\n"
-        ).encode()
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/octet-stream\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+        )
 
         # Calculate encapsulated offsets
         req_hdr_len = len(http_request)
@@ -578,7 +580,9 @@ class IcapClient:
                     response_data += body_start
 
                     while bytes_read < content_length:
-                        chunk = self._socket.recv(min(self.BUFFER_SIZE, content_length - bytes_read))
+                        chunk = self._socket.recv(
+                            min(self.BUFFER_SIZE, content_length - bytes_read)
+                        )
                         if not chunk:
                             break
                         response_data += chunk
@@ -661,6 +665,6 @@ class IcapClient:
 
             # Extract chunk data (excluding trailing CRLF)
             body += buffer[:chunk_size]
-            buffer = buffer[chunk_size + 2:]  # Skip chunk data and CRLF
+            buffer = buffer[chunk_size + 2 :]  # Skip chunk data and CRLF
 
         return body
