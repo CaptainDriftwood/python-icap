@@ -20,6 +20,9 @@ A pure Python ICAP (Internet Content Adaptation Protocol) client with no externa
   - [Scanning Content with RESPMOD](#scanning-content-with-respmod)
   - [Scanning Files](#scanning-files)
   - [Manual File Scanning (lower-level API)](#manual-file-scanning-lower-level-api)
+- [Async Usage](#async-usage)
+  - [Basic Async Example](#basic-async-example)
+  - [Concurrent Scanning](#concurrent-scanning)
 - [Logging](#logging)
 - [Error Handling](#error-handling)
 - [Testing Virus Detection with EICAR](#testing-virus-detection-with-eicar)
@@ -253,6 +256,64 @@ if scan_file('/path/to/file.pdf'):
 else:
     print("File contains threats")
 ```
+
+## Async Usage
+
+PyCap includes an async client (`AsyncIcapClient`) for use with `asyncio`. The async client provides the same API as the sync client but with `async`/`await` syntax.
+
+### Basic Async Example
+
+```python
+import asyncio
+from pycap import AsyncIcapClient
+
+async def main():
+    async with AsyncIcapClient('localhost', port=1344) as client:
+        # Check server options
+        response = await client.options('avscan')
+        print(f"Status: {response.status_code}")
+
+        # Scan content
+        response = await client.scan_bytes(b"Hello, World!", filename="test.txt")
+        if response.is_no_modification:
+            print("Content is clean")
+
+asyncio.run(main())
+```
+
+### Concurrent Scanning
+
+The async client enables scanning multiple files concurrently for improved throughput:
+
+```python
+import asyncio
+from pycap import AsyncIcapClient
+
+async def scan_file(filepath: str) -> tuple[str, bool]:
+    """Scan a single file and return (filepath, is_clean)."""
+    async with AsyncIcapClient('localhost', port=1344) as client:
+        response = await client.scan_file(filepath)
+        return filepath, response.is_no_modification
+
+async def scan_multiple_files(files: list[str]) -> dict[str, bool]:
+    """Scan multiple files concurrently."""
+    tasks = [scan_file(f) for f in files]
+    results = await asyncio.gather(*tasks)
+    return dict(results)
+
+# Example usage
+async def main():
+    files = ['/path/to/file1.pdf', '/path/to/file2.doc', '/path/to/file3.txt']
+    results = await scan_multiple_files(files)
+
+    for filepath, is_clean in results.items():
+        status = "clean" if is_clean else "THREAT DETECTED"
+        print(f"{filepath}: {status}")
+
+asyncio.run(main())
+```
+
+**Note:** Each `AsyncIcapClient` instance creates its own connection. For true concurrency, create multiple client instances (one per concurrent scan) as shown above.
 
 ## Logging
 

@@ -1,5 +1,6 @@
 import logging
 
+from .async_icap import AsyncIcapClient
 from .exception import (
     IcapConnectionError,
     IcapException,
@@ -16,6 +17,7 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 __version__ = "0.1.0"
 
 __all__ = [
+    "AsyncIcapClient",
     "IcapClient",
     "IcapResponse",
     "IcapException",

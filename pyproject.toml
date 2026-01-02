@@ -31,6 +31,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
     "pytest-timeout>=2.0.0",
     "ruff>=0.1.0",
     "testcontainers>=3.7.0",
@@ -51,6 +52,8 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
 ]
@@ -86,9 +89,7 @@ known-first-party = ["pycap"]
 quote-style = "double"
 indent-style = "space"
 
-[tool.pyright]
-include = ["pycap"]
-exclude = ["**/__pycache__"]
-pythonVersion = "3.8"
-typeCheckingMode = "basic"
-reportMissingTypeStubs = false
+[dependency-groups]
+dev = [
+    "ty>=0.0.8",
+]

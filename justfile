@@ -41,7 +41,11 @@ fmt-check:
 
 # Run type checker
 typecheck:
-    uv run pyright pycap
+    uv run ty check pycap
+
+# Aliases for type checking
+alias type := typecheck
+alias ty := typecheck
 
 # Build Docker images
 docker-build:

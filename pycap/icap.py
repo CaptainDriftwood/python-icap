@@ -3,26 +3,22 @@ import socket
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, Iterator, Optional, Union
 
+from ._protocol import IcapProtocol
 from .exception import IcapConnectionError, IcapProtocolError, IcapServerError, IcapTimeoutError
 from .response import IcapResponse
 
 logger = logging.getLogger(__name__)
 
 
-class IcapClient:
+class IcapClient(IcapProtocol):
     """
     ICAP (Internet Content Adaptation Protocol) Client implementation.
     Based on RFC 3507.
     """
 
-    DEFAULT_PORT: int = 1344
-    CRLF: str = "\r\n"
-    ICAP_VERSION: str = "ICAP/1.0"
-
-    # Default buffer size for receiving data
-    BUFFER_SIZE: int = 8192
-
-    def __init__(self, address: str, port: int = DEFAULT_PORT, timeout: int = 10) -> None:
+    def __init__(
+        self, address: str, port: int = IcapProtocol.DEFAULT_PORT, timeout: int = 10
+    ) -> None:
         """
         Initialize ICAP client.
 
@@ -518,14 +514,6 @@ class IcapClient:
         ).encode() + data
 
         return self.respmod(service, http_request, http_response)
-
-    def _build_request(self, request_line: str, headers: Dict[str, str]) -> bytes:
-        """Build ICAP request from request line and headers."""
-        request = request_line
-        for key, value in headers.items():
-            request += f"{key}: {value}{self.CRLF}"
-        request += self.CRLF
-        return request.encode("utf-8")
 
     def _send_and_receive(self, request: bytes) -> IcapResponse:
         """Send request and receive response.
