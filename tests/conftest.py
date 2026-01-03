@@ -1,10 +1,40 @@
 """Pytest configuration for pycap tests."""
 
+import shutil
+import subprocess
 import time
 from pathlib import Path
 
 import pytest
 from testcontainers.compose import DockerCompose
+
+
+def is_docker_available() -> tuple[bool, str]:
+    """
+    Check if Docker is installed and running.
+
+    Returns:
+        Tuple of (is_available, message) where message explains any issues.
+    """
+    # Check if docker command exists
+    if not shutil.which("docker"):
+        return False, "Docker is not installed or not in PATH"
+
+    # Check if docker daemon is running
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return False, "Docker daemon is not running. Please start Docker."
+    except subprocess.TimeoutExpired:
+        return False, "Docker daemon not responding (timeout)"
+    except Exception as e:
+        return False, f"Failed to check Docker status: {e}"
+
+    return True, "Docker is available"
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -56,6 +86,11 @@ def wait_for_icap_service(
 @pytest.fixture(scope="module")
 def icap_service():
     """Start ICAP service using docker-compose."""
+    # Check if Docker is available before attempting to start containers
+    docker_available, message = is_docker_available()
+    if not docker_available:
+        pytest.skip(f"Skipping Docker-based tests: {message}")
+
     docker_path = Path(__file__).parent.parent / "docker"
     config = {"host": "localhost", "port": 1344, "service": "avscan"}
 
