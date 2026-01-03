@@ -61,7 +61,7 @@ def test_client_initialization():
 
     assert client.host == "localhost"
     assert client.port == 1344
-    assert not client._connected
+    assert not client.is_connected
 
 
 def test_port_setter_valid():
@@ -100,7 +100,7 @@ def test_context_manager():
     # We're just testing the structure
     client = IcapClient("localhost", 1344)
 
-    assert not client._connected
+    assert not client.is_connected
     # Note: Can't test actual connection without a server
     # but we can verify the methods exist
     assert hasattr(client, "__enter__")

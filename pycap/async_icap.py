@@ -60,6 +60,11 @@ class AsyncIcapClient(IcapProtocol):
         """Return the server port."""
         return self._port
 
+    @property
+    def is_connected(self) -> bool:
+        """Return True if the client is currently connected to the server."""
+        return self._writer is not None
+
     async def connect(self) -> None:
         """Connect to the ICAP server.
 

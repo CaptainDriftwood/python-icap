@@ -205,5 +205,4 @@ async def test_async_context_manager_cleanup(icap_service):
         pass
 
     # Client should be disconnected after context manager exit
-    assert client._writer is None
-    assert client._reader is None
+    assert not client.is_connected

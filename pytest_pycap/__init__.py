@@ -57,7 +57,7 @@ def icap_client(request) -> Generator[IcapClient, None, None]:
         client.connect()
         yield client
     finally:
-        if client._connected:
+        if client.is_connected:
             client.disconnect()
 
 

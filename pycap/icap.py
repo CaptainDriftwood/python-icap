@@ -48,6 +48,11 @@ class IcapClient(IcapProtocol):
             raise TypeError("Port is not valid type. Please enter an int value.")
         self._port = p
 
+    @property
+    def is_connected(self) -> bool:
+        """Return True if the client is currently connected to the server."""
+        return self._connected
+
     def connect(self) -> None:
         """Connect to the ICAP server.
 
