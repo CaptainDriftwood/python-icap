@@ -84,7 +84,7 @@ def wait_for_icap_service(
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def icap_service():
     """Start ICAP service using docker-compose."""
     # Check if Docker is available before attempting to start containers
@@ -101,7 +101,7 @@ def icap_service():
         yield config
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def icap_service_ssl(icap_service):
     """
     Provide SSL-enabled ICAP service configuration.

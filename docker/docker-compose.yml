@@ -1,5 +1,6 @@
 services:
   icap-server:
+    image: pycap-icap-server:latest
     build:
       context: .
       dockerfile: Dockerfile
