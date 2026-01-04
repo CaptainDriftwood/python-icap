@@ -11,7 +11,7 @@ class IcapConnectionError(IcapException):
 
 
 class IcapProtocolError(IcapException):
-    """Raised when ICAP protocol error occurs."""
+    """Raised when an ICAP protocol error occurs."""
 
     pass
 

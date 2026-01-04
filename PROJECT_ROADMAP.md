@@ -24,12 +24,14 @@
 |-----------|--------|-------|
 | Core ICAP Client | ✅ Complete | Full RFC 3507 implementation |
 | Async Client | ✅ Complete | `AsyncIcapClient` with full feature parity |
-| Pytest Plugin | ✅ Complete | Both sync and async fixtures |
-| Unit Tests | ✅ Complete | Comprehensive coverage |
-| Integration Tests | ✅ Complete | Docker-based with c-icap/ClamAV |
-| Documentation | ✅ Complete | README with examples |
+| SSL/TLS Support | ✅ Complete | `ssl_context` parameter for secure connections |
+| Preview Mode | ✅ Complete | RFC 3507 preview support for efficient scanning |
+| Pytest Plugin | ✅ Complete | Both sync and async fixtures with SSL support |
+| Unit Tests | ✅ Complete | Comprehensive coverage including pytester tests |
+| Integration Tests | ✅ Complete | Docker-based with c-icap/ClamAV, including SSL tests |
+| Documentation | ✅ Complete | README with examples, AWS Lambda example |
+| LICENSE File | ✅ Complete | MIT License |
 | PyPI Publishing | ❌ Pending | Blocked on package rename |
-| LICENSE File | ❌ Missing | Required for public release |
 
 ---
 
@@ -84,7 +86,43 @@
 
 - ✅ **Python 3.13 classifier** - Added to pyproject.toml classifiers.
 
+- ✅ **Python 3.14 classifier** - Added to pyproject.toml classifiers.
+
 - ✅ **Project URLs** - Homepage and Repository URLs in pyproject.toml.
+
+### SSL/TLS Support
+
+- ✅ **SSL/TLS parameter** - Added `ssl_context` parameter to both `IcapClient` and `AsyncIcapClient` for secure connections.
+
+- ✅ **Docker TLS setup** - Added TLS-enabled ICAP server on port 11344 with self-signed certificates.
+
+- ✅ **SSL integration tests** - Added `tests/test_ssl_integration.py` with comprehensive TLS tests.
+
+- ✅ **Pytest plugin SSL support** - Added `ssl_context` to `@pytest.mark.icap` marker.
+
+### ICAP Preview Mode
+
+- ✅ **Preview mode implementation** - Added `preview` parameter to `respmod()` for efficient scanning of large files per RFC 3507.
+
+- ✅ **100 Continue handling** - Proper handling of ICAP 100 Continue responses for preview mode.
+
+### Recent Additions
+
+- ✅ **MIT LICENSE file** - Added LICENSE file for public release (closes #4).
+
+- ✅ **Pytester plugin tests** - Added `tests/test_pytest_plugin.py` with comprehensive plugin validation (closes #5).
+
+- ✅ **Public `is_connected` property** - Added to both clients, replacing private attribute access (closes #6).
+
+- ✅ **Keywords in pyproject.toml** - Added for PyPI discoverability (closes #7).
+
+- ✅ **Workflow branch consistency** - Added `master` to lint.yml triggers (closes #8).
+
+- ✅ **Typecheck workflow updated** - Now uses uv and ty type checker (closes #9).
+
+- ✅ **Version sync** - Using `importlib.metadata.version()` for single source of truth.
+
+- ✅ **AWS Lambda example** - Added `examples/lambda_handler.py` for S3 virus scanning.
 
 ---
 
@@ -92,17 +130,7 @@
 
 ### High Priority
 
-#### 1. Add LICENSE File
-
-**Status:** ❌ Not Done
-
-The project specifies `license = {text = "MIT"}` in pyproject.toml but has no LICENSE file. Required for public release.
-
-**Action:** Create `LICENSE` file with MIT license text.
-
----
-
-#### 2. Package Rename for PyPI
+#### 1. Package Rename for PyPI
 
 **Status:** ❌ Not Done
 
@@ -112,140 +140,9 @@ See [Package Rename & PyPI Publishing](#package-rename--pypi-publishing) section
 
 ---
 
-#### 3. Add Plugin Tests Using pytester
-
-**Status:** ❌ Not Done
-
-No tests exist for the pytest plugin itself.
-
-**Recommendation:** Create `tests/test_pytest_plugin.py`:
-
-```python
-"""Tests for the pytest_pycap plugin."""
-pytest_plugins = ["pytester"]
-
-def test_icap_marker_registered(pytester):
-    """Verify the icap marker is properly registered."""
-    pytester.makepyfile("""
-        import pytest
-
-        @pytest.mark.icap
-        def test_with_marker():
-            pass
-    """)
-    result = pytester.runpytest("--strict-markers")
-    result.assert_outcomes(passed=1)
-
-def test_sample_clean_content_fixture(pytester):
-    """Verify sample_clean_content fixture provides bytes."""
-    pytester.makepyfile("""
-        def test_content(sample_clean_content):
-            assert isinstance(sample_clean_content, bytes)
-            assert len(sample_clean_content) > 0
-    """)
-    result = pytester.runpytest()
-    result.assert_outcomes(passed=1)
-
-def test_icap_service_config_fixture(pytester):
-    """Verify icap_service_config returns expected structure."""
-    pytester.makepyfile("""
-        def test_config(icap_service_config):
-            assert 'host' in icap_service_config
-            assert 'port' in icap_service_config
-            assert 'service' in icap_service_config
-            assert icap_service_config['port'] == 1344
-    """)
-    result = pytester.runpytest()
-    result.assert_outcomes(passed=1)
-```
-
----
-
 ### Medium Priority
 
-#### 4. Add Public `is_connected` Property
-
-**Status:** ❌ Not Done
-
-The `icap_client` fixture accesses private `client._connected` attribute.
-
-**Current (in pytest_pycap/__init__.py:60):**
-```python
-if client._connected:  # Private attribute access
-    client.disconnect()
-```
-
-**Recommendation:** Add to both `IcapClient` and `AsyncIcapClient`:
-
-```python
-@property
-def is_connected(self) -> bool:
-    """Return True if the client is currently connected."""
-    return self._connected
-```
-
----
-
-#### 5. Fix GitHub Workflow Branch Inconsistency
-
-**Status:** ❌ Not Done
-
-`test.yml` triggers on `main, master, develop` but `lint.yml` and `typecheck.yml` only trigger on `main, develop`.
-
-**Action:** Add `master` to lint.yml and typecheck.yml:
-
-```yaml
-on:
-  push:
-    branches: [ main, master, develop ]
-  pull_request:
-    branches: [ main, master, develop ]
-```
-
----
-
-#### 6. Update Typecheck Workflow to Use uv
-
-**Status:** ❌ Not Done
-
-`typecheck.yml` uses pip while other workflows use uv.
-
-**Recommendation:** Update `.github/workflows/typecheck.yml`:
-
-```yaml
-steps:
-- uses: actions/checkout@v4
-
-- name: Install uv
-  uses: astral-sh/setup-uv@v5
-
-- name: Set up Python and install dependencies
-  run: |
-    uv python install 3.11
-    uv sync --all-extras
-    uv pip install pyright
-
-- name: Run pyright
-  run: uv run pyright pycap
-```
-
----
-
-#### 7. Add Keywords to pyproject.toml
-
-**Status:** ❌ Not Done
-
-Missing keywords for PyPI discoverability.
-
-**Action:** Add to `[project]` section:
-
-```toml
-keywords = ["icap", "antivirus", "clamav", "content-adaptation", "security", "virus-scanning", "squid"]
-```
-
----
-
-#### 8. Improve Error Handling in Chunked Reading
+#### 2. Improve Error Handling in Chunked Reading
 
 **Status:** ⚠️ Review Needed
 
@@ -606,11 +503,11 @@ def pytest_addoption(parser):
 
 ---
 
-#### 15. Version Sync
+#### ~~15. Version Sync~~ ✅ DONE
 
-**Status:** ⚠️ Low Priority
+**Status:** ✅ Complete
 
-Version defined in two places: `pyproject.toml` and `pycap/__init__.py`. Consider using dynamic versioning with `hatch-vcs` or `setuptools-scm`.
+Implemented using `importlib.metadata.version()` in `pycap/__init__.py`. Single source of truth is now `pyproject.toml`.
 
 ---
 
@@ -1032,11 +929,11 @@ mv pytest_pycap/ pytest_py_cap/
 
 ### Current State
 
-| Workflow | Status | Issues |
-|----------|--------|--------|
-| `test.yml` | ✅ Good | Matrix testing 3.8-3.13, uses uv |
-| `lint.yml` | ⚠️ Needs fix | Missing `master` branch trigger |
-| `typecheck.yml` | ⚠️ Needs fix | Missing `master` branch, uses pip instead of uv |
+| Workflow | Status | Notes |
+|----------|--------|-------|
+| `test.yml` | ✅ Good | Matrix testing 3.8-3.14, uses uv |
+| `lint.yml` | ✅ Fixed | Now includes `master` branch trigger |
+| `typecheck.yml` | ✅ Fixed | Now uses uv and ty type checker |
 
 ### Recommended New Workflows
 
@@ -1219,11 +1116,11 @@ After a request completes, the socket remains connected but the server may close
 | Marker registration | ✅ | Via `pytest_configure()` |
 | Fixture cleanup | ✅ | yield + context managers |
 | Fixture naming | ✅ | Clear snake_case names |
-| Configuration via markers | ✅ | `@pytest.mark.icap(host=...)` |
+| Configuration via markers | ✅ | `@pytest.mark.icap(host=..., ssl_context=...)` |
 | Framework classifier | ✅ | `"Framework :: Pytest"` present |
-| Public API for state | ❌ | Uses `_connected` private attribute |
+| Public API for state | ✅ | `is_connected` property added |
 | Fixture scope optimization | ❌ | `icap_service_config` function-scoped |
-| Plugin self-tests | ❌ | No pytester tests |
+| Plugin self-tests | ✅ | Pytester tests in `tests/test_pytest_plugin.py` |
 
 ---
 
@@ -1231,18 +1128,13 @@ After a request completes, the socket remains connected but the server may close
 
 These are nice-to-have features not blocking release:
 
-### 1. ICAP Preview Support
+### ~~1. ICAP Preview Support~~ ✅ DONE
 
-RFC 3507 defines preview support for optimizing scans. Current implementation doesn't support the `Preview` header.
+RFC 3507 preview support implemented. Added `preview` parameter to `respmod()` method with proper 100 Continue handling.
 
-### 2. SSL/TLS Support
+### ~~2. SSL/TLS Support~~ ✅ DONE
 
-Many ICAP servers support TLS. Consider adding:
-
-```python
-def __init__(self, address: str, port: int = DEFAULT_PORT,
-             timeout: int = 10, ssl_context: Optional[ssl.SSLContext] = None):
-```
+SSL/TLS support implemented. Added `ssl_context` parameter to both `IcapClient` and `AsyncIcapClient`. Docker setup includes TLS-enabled server on port 11344.
 
 ### 3. Thread Safety & Connection Pooling
 
@@ -1366,13 +1258,13 @@ def connect(self, retries: int = 3, retry_delay: float = 1.0) -> None:
 |------|--------|---------------|
 | `pyproject.toml` | ✅ | Good configuration |
 | `README.md` | ✅ | Well documented |
-| `LICENSE` | ❌ | **Add MIT LICENSE file** |
-| Classifiers | ✅ | Comprehensive |
+| `LICENSE` | ✅ | MIT LICENSE file added |
+| Classifiers | ✅ | Comprehensive (Python 3.8-3.14) |
 | Python version | ✅ | 3.8+ good choice |
 | Dependencies | ✅ | No runtime deps (pure Python) |
 | Entry points | ✅ | pytest plugin registered |
-| Version | ⚠️ | Consider single source |
-| Keywords | ❌ | **Add to pyproject.toml** |
+| Version | ✅ | Using `importlib.metadata.version()` |
+| Keywords | ✅ | Added to pyproject.toml |
 | Package name | ❌ | **Rename to py-cap** |
 | Project URLs | ✅ | Homepage, Repository present |
 | Issues URL | ❌ | Add Issues URL |

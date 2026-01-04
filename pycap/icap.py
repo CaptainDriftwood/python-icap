@@ -84,7 +84,7 @@ class IcapClient(IcapProtocol):
     @port.setter
     def port(self, p: int) -> None:
         if not isinstance(p, int):
-            raise TypeError("Port is not valid type. Please enter an int value.")
+            raise TypeError("Port is not a valid type. Please enter an int value.")
         self._port = p
 
     @property

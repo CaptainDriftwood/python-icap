@@ -49,7 +49,7 @@ def test_is_success():
 
 
 def test_invalid_response():
-    """Test parsing invalid response raises ValueError."""
+    """Test parsing an invalid response raises ValueError."""
     with pytest.raises(ValueError):
         IcapResponse.parse(b"Invalid response")
 
@@ -74,7 +74,7 @@ def test_port_setter_valid():
 
 
 def test_port_setter_invalid():
-    """Test setting invalid port raises TypeError."""
+    """Test setting an invalid port raises TypeError."""
     client = IcapClient("localhost")
     with pytest.raises(TypeError):
         client.port = "invalid"
