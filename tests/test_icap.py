@@ -105,3 +105,37 @@ def test_context_manager():
     # but we can verify the methods exist
     assert hasattr(client, "__enter__")
     assert hasattr(client, "__exit__")
+
+
+# Preview mode tests
+
+
+def test_respmod_has_preview_parameter():
+    """Test that respmod method accepts preview parameter."""
+    client = IcapClient("localhost", 1344)
+    # Check that the method signature includes preview parameter
+    import inspect
+
+    sig = inspect.signature(client.respmod)
+    assert "preview" in sig.parameters
+    # Check default is None
+    assert sig.parameters["preview"].default is None
+
+
+def test_parse_100_continue_response():
+    """Test parsing 100 Continue response for preview mode."""
+    raw_response = b"ICAP/1.0 100 Continue\r\nServer: C-ICAP/1.0\r\n\r\n"
+
+    response = IcapResponse.parse(raw_response)
+
+    assert response.status_code == 100
+    assert response.status_message == "Continue"
+    # Note: is_success is 200-299, so 100 is not considered "success" in that sense
+    assert not response.is_success
+
+
+def test_send_with_preview_method_exists():
+    """Test that _send_with_preview method exists on the client."""
+    client = IcapClient("localhost", 1344)
+    assert hasattr(client, "_send_with_preview")
+    assert callable(client._send_with_preview)

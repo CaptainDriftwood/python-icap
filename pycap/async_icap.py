@@ -144,6 +144,7 @@ class AsyncIcapClient(IcapProtocol):
         http_request: bytes,
         http_response: bytes,
         headers: Optional[Dict[str, str]] = None,
+        preview: Optional[int] = None,
     ) -> IcapResponse:
         """
         Send RESPMOD request to ICAP server.
@@ -153,6 +154,10 @@ class AsyncIcapClient(IcapProtocol):
             http_request: Original HTTP request headers
             http_response: HTTP response to be scanned/modified (headers + body)
             headers: Additional ICAP headers
+            preview: Optional preview size in bytes. If set, sends only the first
+                N bytes of the body initially, then waits for server response.
+                If server responds with 100 Continue, sends the remaining data.
+                Use OPTIONS to query the server's preferred preview size.
 
         Returns:
             IcapResponse object
@@ -191,6 +196,10 @@ class AsyncIcapClient(IcapProtocol):
         else:
             icap_headers["Encapsulated"] = f"res-hdr=0, res-body={len(http_res_headers)}"
 
+        # Add Preview header if preview mode is requested
+        if preview is not None:
+            icap_headers["Preview"] = str(preview)
+
         if headers:
             icap_headers.update(headers)
 
@@ -200,6 +209,10 @@ class AsyncIcapClient(IcapProtocol):
         if http_request:
             request += http_request
         request += http_res_headers
+
+        # Handle preview mode
+        if preview is not None and http_res_body:
+            return await self._send_with_preview(request, http_res_body, preview)
 
         # Add encapsulated body with chunked transfer encoding
         if http_res_body:
@@ -548,3 +561,92 @@ class AsyncIcapClient(IcapProtocol):
             buffer = buffer[chunk_size + 2 :]
 
         return body
+
+    async def _send_with_preview(
+        self, request: bytes, body: bytes, preview_size: int
+    ) -> IcapResponse:
+        """Send an ICAP request with preview mode.
+
+        Per RFC 3507, preview mode allows the server to make a decision based on
+        the first N bytes without receiving the full payload. This can significantly
+        improve performance for large files.
+
+        Args:
+            request: The ICAP request (headers + encapsulated HTTP headers)
+            body: The full HTTP response body to be sent
+            preview_size: Number of bytes to send in the preview
+
+        Returns:
+            IcapResponse object
+        """
+        if self._writer is None or self._reader is None:
+            raise IcapConnectionError("Not connected to ICAP server")
+
+        try:
+            # Determine preview and remainder portions
+            preview_data = body[:preview_size]
+            remainder_data = body[preview_size:]
+            is_complete = len(body) <= preview_size
+
+            logger.debug(
+                f"Sending preview: {len(preview_data)} bytes, "
+                f"remainder: {len(remainder_data)} bytes, "
+                f"complete in preview: {is_complete}"
+            )
+
+            # Build the preview chunk
+            # If the entire body fits in preview, use "ieof" extension per RFC 3507
+            if is_complete:
+                # Use ieof (implicit end of file) when entire message fits in preview
+                chunk_header = f"{len(preview_data):X}; ieof{self.CRLF}".encode()
+                preview_chunk = chunk_header + preview_data + f"{self.CRLF}".encode()
+                # Zero-length terminator
+                preview_chunk += f"0{self.CRLF}{self.CRLF}".encode()
+            else:
+                # Normal preview chunk without ieof
+                chunk_header = f"{len(preview_data):X}{self.CRLF}".encode()
+                preview_chunk = chunk_header + preview_data + f"{self.CRLF}".encode()
+                # Zero-length terminator for preview section
+                preview_chunk += f"0{self.CRLF}{self.CRLF}".encode()
+
+            # Send request with preview
+            self._writer.write(request + preview_chunk)
+            await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
+
+            # Receive initial response (could be 100 Continue, 204, or 200)
+            response_data = await self._receive_response()
+            response = IcapResponse.parse(response_data)
+
+            # If server responds with 100 Continue, send the rest of the body
+            if response.status_code == 100:
+                logger.debug("Received 100 Continue, sending remainder of body")
+
+                # Send the remainder of the body
+                if remainder_data:
+                    chunk_header = f"{len(remainder_data):X}{self.CRLF}".encode()
+                    remainder_chunk = chunk_header + remainder_data + f"{self.CRLF}".encode()
+                    self._writer.write(remainder_chunk)
+
+                # Send final zero-length chunk
+                self._writer.write(f"0{self.CRLF}{self.CRLF}".encode())
+                await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
+
+                # Receive final response
+                response_data = await self._receive_response()
+                response = IcapResponse.parse(response_data)
+
+            # Check for server errors
+            if 500 <= response.status_code < 600:
+                raise IcapServerError(
+                    f"ICAP server error: {response.status_code} {response.status_message}"
+                )
+
+            logger.debug(f"Preview response: {response.status_code} {response.status_message}")
+            return response
+
+        except asyncio.TimeoutError as e:
+            raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
+        except (ConnectionResetError, BrokenPipeError, OSError) as e:
+            self._writer = None
+            self._reader = None
+            raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e

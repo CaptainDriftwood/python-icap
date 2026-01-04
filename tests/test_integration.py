@@ -97,3 +97,75 @@ def test_scan_stream(icap_service, tmp_path):
         with open(test_file, "rb") as f:
             response = client.scan_stream(f, service=icap_service["service"])
             assert response.is_success
+
+
+@pytest.mark.integration
+def test_respmod_with_preview_small_content(icap_service):
+    """Test RESPMOD with preview mode where content fits in preview (ieof case)."""
+    with IcapClient(icap_service["host"], icap_service["port"]) as client:
+        # Small content that fits entirely in preview
+        content = b"Small clean content"
+        http_request = b"GET /test.txt HTTP/1.1\r\nHost: test\r\n\r\n"
+        http_response = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/plain\r\n"
+            b"Content-Length: " + str(len(content)).encode() + b"\r\n"
+            b"\r\n" + content
+        )
+
+        # Preview size larger than content - should use ieof
+        response = client.respmod(
+            icap_service["service"],
+            http_request,
+            http_response,
+            preview=1024,
+        )
+        assert response.is_success
+
+
+@pytest.mark.integration
+def test_respmod_with_preview_large_content(icap_service):
+    """Test RESPMOD with preview mode where content exceeds preview size."""
+    with IcapClient(icap_service["host"], icap_service["port"]) as client:
+        # Content larger than preview size
+        content = b"A" * 2048  # 2KB of content
+        http_request = b"GET /test.bin HTTP/1.1\r\nHost: test\r\n\r\n"
+        http_response = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/octet-stream\r\n"
+            b"Content-Length: " + str(len(content)).encode() + b"\r\n"
+            b"\r\n" + content
+        )
+
+        # Preview size smaller than content - should trigger 100 Continue
+        response = client.respmod(
+            icap_service["service"],
+            http_request,
+            http_response,
+            preview=512,
+        )
+        assert response.is_success
+
+
+@pytest.mark.integration
+def test_respmod_with_preview_eicar(icap_service):
+    """Test that preview mode correctly detects EICAR virus."""
+    with IcapClient(icap_service["host"], icap_service["port"]) as client:
+        content = EICAR_TEST_STRING
+        http_request = b"GET /eicar.com HTTP/1.1\r\nHost: test\r\n\r\n"
+        http_response = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/octet-stream\r\n"
+            b"Content-Length: " + str(len(content)).encode() + b"\r\n"
+            b"\r\n" + content
+        )
+
+        # EICAR is small enough to fit in preview, server should detect it
+        response = client.respmod(
+            icap_service["service"],
+            http_request,
+            http_response,
+            preview=1024,
+        )
+        # Virus should be detected
+        assert response.status_code in (200, 403, 500)
