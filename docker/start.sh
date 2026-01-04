@@ -2,6 +2,18 @@
 
 echo "Starting services..."
 
+# Enable TLS if certificates are mounted
+if [ -f /etc/c-icap/certs/server.pem ] && [ -f /etc/c-icap/certs/server-key.pem ]; then
+    echo "TLS certificates found, enabling TLS on port 11344..."
+    # TlsPort syntax: TlsPort [address:]port [cert=path] [key=path]
+    echo "" >> /etc/c-icap/c-icap.conf
+    echo "# TLS Configuration (dynamically added - certs were found)" >> /etc/c-icap/c-icap.conf
+    echo "TlsPort 11344 cert=/etc/c-icap/certs/server.pem key=/etc/c-icap/certs/server-key.pem" >> /etc/c-icap/c-icap.conf
+else
+    echo "No TLS certificates found, running without TLS support."
+    echo "To enable TLS, run: just generate-certs"
+fi
+
 # Update ClamAV virus definitions (blocking - need definitions before clamd can start)
 echo "Updating ClamAV definitions..."
 freshclam

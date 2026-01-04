@@ -58,9 +58,17 @@ generate-certs:
         apk add --no-cache openssl >/dev/null 2>&1 && \
         cd /certs && \
         echo "Generating CA certificate..." && \
+        printf "%s\n" \
+            "basicConstraints=critical,CA:TRUE" \
+            "keyUsage=critical,keyCertSign,cRLSign" \
+            "subjectKeyIdentifier=hash" \
+            > ca-ext.cnf && \
         openssl req -x509 -newkey rsa:4096 -sha256 -days 365 \
             -nodes -keyout ca-key.pem -out ca.pem \
-            -subj "/CN=ICAP Test CA/O=PyCap Test/C=US" 2>/dev/null && \
+            -subj "/CN=ICAP Test CA/O=PyCap Test/C=US" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign" \
+            -addext "subjectKeyIdentifier=hash" 2>/dev/null && \
         echo "Generating server certificate..." && \
         openssl req -newkey rsa:4096 -nodes -keyout server-key.pem \
             -out server.csr \
@@ -75,7 +83,7 @@ generate-certs:
         openssl x509 -req -in server.csr -CA ca.pem -CAkey ca-key.pem \
             -CAcreateserial -out server.pem -days 365 \
             -extfile server-ext.cnf 2>/dev/null && \
-        rm -f server.csr server-ext.cnf ca-key.pem ca.srl && \
+        rm -f server.csr server-ext.cnf ca-ext.cnf ca-key.pem ca.srl && \
         chmod 644 ca.pem server.pem && \
         chmod 600 server-key.pem && \
         echo "Certificates generated in docker/certs/:" && \

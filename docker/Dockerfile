@@ -66,6 +66,6 @@ COPY squidclamav.conf /etc/c-icap/squidclamav.conf
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
-EXPOSE 1344
+EXPOSE 1344 11344
 
 CMD ["/start.sh"]
