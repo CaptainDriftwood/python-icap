@@ -31,13 +31,9 @@ from pycap.exception import IcapConnectionError, IcapTimeoutError
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
 
-# Initialize logger
 logger = Logger(service="virus-scanner")
-
-# Initialize S3 client
 s3_client: S3Client = boto3.client("s3")
 
-# Configuration from environment
 ICAP_HOST = os.environ.get("ICAP_HOST", "localhost")
 ICAP_PORT = int(os.environ.get("ICAP_PORT", "1344"))
 ICAP_SERVICE = os.environ.get("ICAP_SERVICE", "avscan")
@@ -46,11 +42,36 @@ ICAP_SERVICE = os.environ.get("ICAP_SERVICE", "avscan")
 class VirusFoundException(Exception):
     """Raised when a virus is detected in the scanned content."""
 
-    def __init__(self, bucket: str, key: str, message: str = "Virus detected"):
+    def __init__(
+        self,
+        bucket: str,
+        key: str,
+        virus_name: str | None = None,
+    ):
         self.bucket = bucket
         self.key = key
-        self.message = message
+        self.virus_name = virus_name
+        message = f"Virus detected: {virus_name}" if virus_name else "Virus detected"
         super().__init__(f"{message} in s3://{bucket}/{key}")
+
+
+def _extract_virus_name(headers: dict[str, str]) -> str | None:
+    """
+    Extract virus/threat name from ICAP response headers.
+
+    Different ICAP servers use different headers for reporting threats.
+    This function checks common header names used by popular AV engines.
+    """
+    threat_headers = [
+        "X-Virus-ID",
+        "X-Infection-Found",
+        "X-Violations-Found",
+        "X-Threat-Name",
+    ]
+    for header in threat_headers:
+        if header in headers:
+            return headers[header]
+    return None
 
 
 @logger.inject_lambda_context
@@ -71,7 +92,6 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
     Raises:
         VirusFoundException: If a virus is detected in the object
     """
-    # Parse S3 event
     records = event.get("Records", [])
     if not records:
         logger.warning("No records in event")
@@ -90,7 +110,6 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
 
         logger.info("Processing S3 object", extra={"bucket": bucket, "key": key})
 
-        # Download object from S3
         try:
             response = s3_client.get_object(Bucket=bucket, Key=key)
             content = response["Body"].read()
@@ -107,7 +126,6 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
             )
             raise
 
-        # Scan content using ICAP
         try:
             with IcapClient(ICAP_HOST, port=ICAP_PORT) as client:
                 scan_response = client.scan_bytes(
@@ -117,9 +135,8 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
                 )
 
                 if scan_response.is_no_modification:
-                    # No virus found - content is clean
                     logger.info(
-                        "No virus detected - content is clean",
+                        "Scan complete - no threats detected",
                         extra={
                             "bucket": bucket,
                             "key": key,
@@ -134,17 +151,23 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
                         }
                     )
                 else:
-                    # Virus detected
+                    headers = dict(scan_response.headers)
+                    virus_name = _extract_virus_name(headers)
                     logger.error(
-                        "Virus detected in S3 object",
+                        "Threat detected in S3 object",
                         extra={
                             "bucket": bucket,
                             "key": key,
+                            "virus_name": virus_name,
                             "status_code": scan_response.status_code,
-                            "headers": dict(scan_response.headers),
+                            "headers": headers,
                         },
                     )
-                    raise VirusFoundException(bucket=bucket, key=key)
+                    raise VirusFoundException(
+                        bucket=bucket,
+                        key=key,
+                        virus_name=virus_name,
+                    )
 
         except (IcapConnectionError, IcapTimeoutError):
             logger.exception(
