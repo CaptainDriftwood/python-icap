@@ -1,12 +1,14 @@
 # PyCap - Python ICAP Client
 
-A pure Python ICAP (Internet Content Adaptation Protocol) client with no external dependencies. Implements the full RFC 3507 specification for communicating with ICAP servers like c-icap and SquidClamav.
+A pure Python ICAP (Internet Content Adaptation Protocol) client with no external dependencies. Implements RFC 3507 for communicating with ICAP servers like c-icap and SquidClamav, supporting OPTIONS, REQMOD, and RESPMOD methods.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [What is ICAP?](#what-is-icap)
+  - [Key Differences from HTTP](#key-differences-from-http)
   - [How ICAP Works](#how-icap-works)
+  - [How ICAP Packages HTTP Content](#how-icap-packages-http-content)
   - [ICAP Methods](#icap-methods)
   - [Common Use Cases](#common-use-cases)
 - [ICAP Servers and Tools](#icap-servers-and-tools)
@@ -43,11 +45,29 @@ PyCap is a Python library for communicating with ICAP servers. It supports the s
 - **REQMOD** - Request modification mode (scan/modify HTTP requests)
 - **RESPMOD** - Response modification mode (scan/modify HTTP responses)
 
-This implementation is based on the [net-icap](https://github.com/cattywampus/net-icap) repository patterns.
-
 ## What is ICAP?
 
-**ICAP (Internet Content Adaptation Protocol)** is a lightweight protocol for performing "remote procedure calls" on HTTP messages. It enables content transformation and filtering at network edges rather than requiring all processing through centralized servers.
+**ICAP (Internet Content Adaptation Protocol)** is a simple protocol that lets network devices (like proxies) send HTTP content to a separate server for inspection or modification before passing it along.
+
+Think of it this way:
+- **Without ICAP**: A proxy receives an HTTP response and forwards it directly to the client
+- **With ICAP**: The proxy first asks an ICAP server "Is this content safe/appropriate?" before forwarding
+
+ICAP is essentially a **wrapper around HTTP messages**. The proxy packages up the HTTP request or response and sends it to the ICAP server using ICAP's own simple format. The ICAP server can then:
+- **Approve it** (204 No Modification) - "Looks fine, send it as-is"
+- **Modify it** (200 OK with modified content) - "Here's a cleaned-up version"
+- **Block it** (200 OK with error page) - "This contains a virus, show this warning instead"
+
+### Key Differences from HTTP
+
+| Aspect | HTTP | ICAP |
+|--------|------|------|
+| Default port | 80 (or 443 for HTTPS) | 1344 |
+| Purpose | Transfer web content | Inspect/modify HTTP content |
+| Request types | GET, POST, PUT, DELETE, etc. | OPTIONS, REQMOD, RESPMOD |
+| Used by | Browsers, apps, servers | Proxies, security appliances |
+
+ICAP was designed to be HTTP-like so that developers familiar with HTTP can easily understand it. The main difference is that ICAP **carries HTTP messages inside it** rather than being an HTTP message itself.
 
 ### How ICAP Works
 
@@ -64,6 +84,21 @@ This implementation is based on the [net-icap](https://github.com/cattywampus/ne
 2. **Proxy** forwards the request/response to an **ICAP server** for inspection
 3. **ICAP server** scans, modifies, or approves the content
 4. **Proxy** returns the (possibly modified) response to the client
+
+### How ICAP Packages HTTP Content
+
+When ICAP sends HTTP content to the server, it uses the `Encapsulated` header to tell the server where each piece of the HTTP message begins:
+
+```
+Encapsulated: req-hdr=0, res-hdr=45, res-body=128
+```
+
+This means:
+- HTTP request headers start at byte 0
+- HTTP response headers start at byte 45
+- HTTP response body starts at byte 128
+
+This allows the ICAP server to efficiently parse the message without scanning through the entire content. The body portion uses **chunked transfer encoding** (the same technique HTTP uses for streaming) so content can be processed incrementally.
 
 ### ICAP Methods
 
@@ -532,9 +567,13 @@ The plugin is automatically registered when PyCap is installed (via the `pytest1
 
 ## Protocol Reference
 
-- **RFC 3507**: Internet Content Adaptation Protocol (ICAP)
+- **[RFC 3507](https://datatracker.ietf.org/doc/rfc3507/)**: Internet Content Adaptation Protocol (ICAP)
 - Default Port: 1344
 - Methods: OPTIONS, REQMOD, RESPMOD
+
+### Limitations
+
+- **Preview mode not yet implemented** - ICAP preview mode (where the client sends only the first N bytes before waiting for a server decision) is not currently supported. See [Issue #17](https://github.com/CaptainDriftwood/pycap/issues/17) for progress on this feature.
 
 ## License
 
