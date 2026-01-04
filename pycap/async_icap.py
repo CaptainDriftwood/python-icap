@@ -643,18 +643,15 @@ class AsyncIcapClient(IcapProtocol):
             )
 
             # Build the preview chunk
-            # If the entire body fits in preview, use "ieof" extension per RFC 3507
+            # Per RFC 3507 Section 4.5, use "ieof" extension on the zero-length
+            # terminator chunk when the entire body fits in preview
+            chunk_header = f"{len(preview_data):X}{self.CRLF}".encode()
+            preview_chunk = chunk_header + preview_data + f"{self.CRLF}".encode()
             if is_complete:
-                # Use ieof (implicit end of file) when entire message fits in preview
-                chunk_header = f"{len(preview_data):X}; ieof{self.CRLF}".encode()
-                preview_chunk = chunk_header + preview_data + f"{self.CRLF}".encode()
-                # Zero-length terminator
-                preview_chunk += f"0{self.CRLF}{self.CRLF}".encode()
+                # Use ieof on zero-length chunk to indicate no more data
+                preview_chunk += f"0; ieof{self.CRLF}{self.CRLF}".encode()
             else:
-                # Normal preview chunk without ieof
-                chunk_header = f"{len(preview_data):X}{self.CRLF}".encode()
-                preview_chunk = chunk_header + preview_data + f"{self.CRLF}".encode()
-                # Zero-length terminator for preview section
+                # Normal zero-length terminator for preview section
                 preview_chunk += f"0{self.CRLF}{self.CRLF}".encode()
 
             # Send request with preview
