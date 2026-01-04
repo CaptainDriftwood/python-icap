@@ -2,9 +2,9 @@ name: Lint and Format
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, master, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, master, develop ]
 
 permissions:
   contents: read
