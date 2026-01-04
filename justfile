@@ -47,6 +47,42 @@ typecheck:
 alias type := typecheck
 alias ty := typecheck
 
+# Generate SSL certificates for TLS testing
+# Uses Docker so no local openssl installation is required.
+# Certificates are written directly to docker/certs/ via volume mount.
+generate-certs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p docker/certs
+    docker run --rm -v "$(pwd)/docker/certs:/certs" alpine sh -c ' \
+        apk add --no-cache openssl >/dev/null 2>&1 && \
+        cd /certs && \
+        echo "Generating CA certificate..." && \
+        openssl req -x509 -newkey rsa:4096 -sha256 -days 365 \
+            -nodes -keyout ca-key.pem -out ca.pem \
+            -subj "/CN=ICAP Test CA/O=PyCap Test/C=US" 2>/dev/null && \
+        echo "Generating server certificate..." && \
+        openssl req -newkey rsa:4096 -nodes -keyout server-key.pem \
+            -out server.csr \
+            -subj "/CN=localhost/O=PyCap Test/C=US" 2>/dev/null && \
+        printf "%s\n" \
+            "authorityKeyIdentifier=keyid,issuer" \
+            "basicConstraints=CA:FALSE" \
+            "keyUsage=digitalSignature,keyEncipherment" \
+            "extendedKeyUsage=serverAuth" \
+            "subjectAltName=DNS:localhost,DNS:icap-server,IP:127.0.0.1" \
+            > server-ext.cnf && \
+        openssl x509 -req -in server.csr -CA ca.pem -CAkey ca-key.pem \
+            -CAcreateserial -out server.pem -days 365 \
+            -extfile server-ext.cnf 2>/dev/null && \
+        rm -f server.csr server-ext.cnf ca-key.pem ca.srl && \
+        chmod 644 ca.pem server.pem && \
+        chmod 600 server-key.pem && \
+        echo "Certificates generated in docker/certs/:" && \
+        echo "  - ca.pem (CA certificate - use as cafile in ssl_context)" && \
+        echo "  - server.pem (server certificate)" && \
+        echo "  - server-key.pem (server private key)"'
+
 # Build Docker images
 docker-build:
     docker compose -f docker/docker-compose.yml build
