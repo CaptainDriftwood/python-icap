@@ -1,6 +1,7 @@
 """Pytest configuration for pycap tests."""
 
 import shutil
+import ssl
 import subprocess
 import time
 from pathlib import Path
@@ -98,3 +99,32 @@ def icap_service():
         # Wait for ICAP service to be ready (polls until OPTIONS succeeds)
         wait_for_icap_service(config["host"], config["port"], config["service"])
         yield config
+
+
+@pytest.fixture(scope="module")
+def icap_service_ssl(icap_service):
+    """
+    Provide SSL-enabled ICAP service configuration.
+
+    This fixture depends on icap_service to ensure Docker is running.
+    It skips tests if SSL certificates haven't been generated.
+
+    Returns:
+        dict with host, port, ssl_port, service, ssl_context
+    """
+    ca_cert_path = Path(__file__).parent.parent / "docker/certs/ca.pem"
+
+    if not ca_cert_path.exists():
+        pytest.skip("SSL certificates not generated. Run: just generate-certs")
+
+    # Create SSL context with CA certificate
+    ssl_context = ssl.create_default_context(cafile=str(ca_cert_path))
+
+    return {
+        "host": icap_service["host"],
+        "port": icap_service["port"],
+        "ssl_port": 11344,
+        "service": icap_service["service"],
+        "ssl_context": ssl_context,
+        "ca_cert": str(ca_cert_path),
+    }

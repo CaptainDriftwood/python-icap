@@ -15,6 +15,10 @@ test *args:
 
 # Run integration tests (requires Docker)
 test-integration *args:
+    uv run pytest -m "integration and not ssl" {{ args }}
+
+# Run integration tests including SSL (requires Docker and certs)
+test-integration-ssl *args:
     uv run pytest -m integration {{ args }}
 
 # Run all tests
