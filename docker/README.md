@@ -4,7 +4,7 @@
 
 - Docker installed
 - Docker Compose installed
-- Python 3.7+ installed
+- Python 3.8+ installed
 
 ## Step-by-Step Setup
 
