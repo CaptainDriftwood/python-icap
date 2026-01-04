@@ -135,3 +135,20 @@ def test_async_icap_client_fixture_exists(pytester):
     )
     result = pytester.runpytest()
     result.assert_outcomes(passed=1)
+
+
+def test_icap_marker_with_ssl_context(pytester):
+    """Verify icap marker accepts ssl_context kwarg."""
+    pytester.makepyfile(
+        """
+        import ssl
+        import pytest
+
+        @pytest.mark.icap(host="icap.example.com", ssl_context=ssl.create_default_context())
+        def test_with_ssl_context():
+            # Just verify the marker is accepted with ssl_context
+            pass
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)

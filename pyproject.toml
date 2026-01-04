@@ -63,6 +63,8 @@ timeout_method = "thread"  # Use thread-based timeout for better compatibility
 filterwarnings = [
     # Ignore deprecation warning from testcontainers internals
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
+    # Ignore pytest-asyncio warning in pytester subprocess tests (our main config has it set)
+    "ignore:The configuration option \"asyncio_default_fixture_loop_scope\" is unset:pytest.PytestDeprecationWarning",
 ]
 
 [tool.ruff]

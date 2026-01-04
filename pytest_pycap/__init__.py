@@ -4,8 +4,9 @@ Pytest plugin for PyCap ICAP client testing.
 This plugin provides fixtures and helpers for testing ICAP clients.
 """
 
+import ssl
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, Generator
+from typing import Any, AsyncGenerator, Dict, Generator, Optional
 
 import pytest
 
@@ -23,7 +24,10 @@ __all__ = [
 
 def pytest_configure(config):
     """Register custom markers."""
-    config.addinivalue_line("markers", "icap: mark test as requiring an ICAP server")
+    config.addinivalue_line(
+        "markers",
+        "icap(host, port, timeout, ssl_context): configure ICAP client for testing",
+    )
 
 
 @pytest.fixture
@@ -33,25 +37,46 @@ def icap_client(request) -> Generator[IcapClient, None, None]:
 
     The client configuration can be customized using pytest markers:
 
-    @pytest.mark.icap(host='localhost', port=1344)
-    def test_something(icap_client):
-        response = icap_client.options('avscan')
-        assert response.is_success
+    Example - Basic usage:
+        @pytest.mark.icap(host='localhost', port=1344)
+        def test_something(icap_client):
+            response = icap_client.options('avscan')
+            assert response.is_success
+
+    Example - With SSL/TLS:
+        @pytest.mark.icap(host='icap.example.com', ssl_context=ssl.create_default_context())
+        def test_secure_scan(icap_client):
+            response = icap_client.scan_bytes(b"content")
+            assert response.is_success
+
+    Supported marker kwargs:
+        - host: ICAP server hostname (default: 'localhost')
+        - port: ICAP server port (default: 1344)
+        - timeout: Connection timeout in seconds (default: 10)
+        - ssl_context: Optional ssl.SSLContext for TLS connections (default: None)
     """
     marker = request.node.get_closest_marker("icap")
 
     # Default configuration
-    config = {
+    config: Dict[str, Any] = {
         "host": "localhost",
         "port": 1344,
         "timeout": 10,
+        "ssl_context": None,
     }
 
     # Override with marker kwargs if provided
     if marker and marker.kwargs:
         config.update(marker.kwargs)
 
-    client = IcapClient(config["host"], port=config["port"], timeout=config["timeout"])
+    ssl_context: Optional[ssl.SSLContext] = config.get("ssl_context")
+
+    client = IcapClient(
+        config["host"],
+        port=config["port"],
+        timeout=config["timeout"],
+        ssl_context=ssl_context,
+    )
 
     try:
         client.connect()
@@ -68,29 +93,46 @@ async def async_icap_client(request) -> AsyncGenerator[AsyncIcapClient, None]:
 
     The client configuration can be customized using pytest markers:
 
-    @pytest.mark.icap(host='localhost', port=1344)
-    async def test_something(async_icap_client):
-        response = await async_icap_client.options('avscan')
-        assert response.is_success
+    Example - Basic usage:
+        @pytest.mark.icap(host='localhost', port=1344)
+        async def test_something(async_icap_client):
+            response = await async_icap_client.options('avscan')
+            assert response.is_success
+
+    Example - With SSL/TLS:
+        @pytest.mark.icap(host='icap.example.com', ssl_context=ssl.create_default_context())
+        async def test_secure_scan(async_icap_client):
+            response = await async_icap_client.scan_bytes(b"content")
+            assert response.is_success
+
+    Supported marker kwargs:
+        - host: ICAP server hostname (default: 'localhost')
+        - port: ICAP server port (default: 1344)
+        - timeout: Connection timeout in seconds (default: 10.0)
+        - ssl_context: Optional ssl.SSLContext for TLS connections (default: None)
     """
     marker = request.node.get_closest_marker("icap")
 
     # Default configuration
-    config = {
+    config: Dict[str, Any] = {
         "host": "localhost",
         "port": 1344,
         "timeout": 10.0,
+        "ssl_context": None,
     }
 
     # Override with marker kwargs if provided
     if marker and marker.kwargs:
         config.update(marker.kwargs)
 
+    ssl_context: Optional[ssl.SSLContext] = config.get("ssl_context")
+
     # Use async context manager for proper cleanup
     async with AsyncIcapClient(
         config["host"],
         port=config["port"],
         timeout=config["timeout"],
+        ssl_context=ssl_context,
     ) as client:
         yield client
 
