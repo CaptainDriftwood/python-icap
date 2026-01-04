@@ -1,5 +1,6 @@
 import logging
 import socket
+import ssl
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, Iterator, Optional, Union
 
@@ -14,10 +15,27 @@ class IcapClient(IcapProtocol):
     """
     ICAP (Internet Content Adaptation Protocol) Client implementation.
     Based on RFC 3507.
+
+    Supports optional SSL/TLS encryption for secure connections to ICAP servers.
+
+    Example with SSL:
+        >>> import ssl
+        >>> from pycap import IcapClient
+        >>>
+        >>> # Create SSL context (uses system CA certificates)
+        >>> ssl_context = ssl.create_default_context()
+        >>>
+        >>> with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
+        ...     response = client.scan_bytes(b"content")
+        ...     print(f"Clean: {response.is_no_modification}")
     """
 
     def __init__(
-        self, address: str, port: int = IcapProtocol.DEFAULT_PORT, timeout: int = 10
+        self,
+        address: str,
+        port: int = IcapProtocol.DEFAULT_PORT,
+        timeout: int = 10,
+        ssl_context: Optional[ssl.SSLContext] = None,
     ) -> None:
         """
         Initialize ICAP client.
@@ -26,13 +44,34 @@ class IcapClient(IcapProtocol):
             address: ICAP server hostname or IP address
             port: ICAP server port (default: 1344)
             timeout: Socket timeout in seconds (default: 10)
+            ssl_context: Optional SSL context for TLS connections. If provided,
+                the connection will be wrapped with SSL/TLS. You can create a
+                context using ssl.create_default_context() for standard TLS,
+                or customize it for specific certificate requirements.
+
+        Example:
+            >>> # Standard TLS with system CA certificates
+            >>> ssl_ctx = ssl.create_default_context()
+            >>> client = IcapClient('icap.example.com', ssl_context=ssl_ctx)
+
+            >>> # TLS with custom CA certificate
+            >>> ssl_ctx = ssl.create_default_context(cafile='/path/to/ca.pem')
+            >>> client = IcapClient('icap.example.com', ssl_context=ssl_ctx)
+
+            >>> # TLS with client certificate authentication
+            >>> ssl_ctx = ssl.create_default_context()
+            >>> ssl_ctx.load_cert_chain('/path/to/client.pem', '/path/to/key.pem')
+            >>> client = IcapClient('icap.example.com', ssl_context=ssl_ctx)
         """
         self._address: str = address
         self._port: int = port
         self._timeout: int = timeout
-        self._socket: Optional[socket.socket] = None
+        self._ssl_context: Optional[ssl.SSLContext] = ssl_context
+        self._socket: Optional[Union[socket.socket, ssl.SSLSocket]] = None
         self._connected: bool = False
-        logger.debug(f"Initialized IcapClient for {address}:{port}")
+        logger.debug(
+            f"Initialized IcapClient for {address}:{port} (SSL: {ssl_context is not None})"
+        )
 
     @property
     def host(self) -> str:
@@ -56,8 +95,12 @@ class IcapClient(IcapProtocol):
     def connect(self) -> None:
         """Connect to the ICAP server.
 
+        If an ssl_context was provided during initialization, the connection
+        will be wrapped with SSL/TLS after the TCP connection is established.
+
         Raises:
-            IcapConnectionError: If connection to the server fails.
+            IcapConnectionError: If connection to the server fails, including
+                SSL/TLS handshake errors.
             IcapTimeoutError: If connection times out.
         """
         if self._connected:
@@ -66,14 +109,29 @@ class IcapClient(IcapProtocol):
 
         logger.info(f"Connecting to {self.host}:{self.port}")
         try:
-            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._socket.settimeout(self._timeout)
-            self._socket.connect((self.host, self.port))
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self._timeout)
+            sock.connect((self.host, self.port))
+
+            # Wrap socket with SSL/TLS if ssl_context is provided
+            if self._ssl_context is not None:
+                logger.debug("Wrapping socket with SSL/TLS")
+                self._socket = self._ssl_context.wrap_socket(sock, server_hostname=self.host)
+            else:
+                self._socket = sock
+
             self._connected = True
-            logger.info(f"Connected to {self.host}:{self.port}")
+            logger.info(
+                f"Connected to {self.host}:{self.port} (SSL: {self._ssl_context is not None})"
+            )
         except socket.timeout as e:
             self._socket = None
             raise IcapTimeoutError(f"Connection to {self.host}:{self.port} timed out") from e
+        except ssl.SSLError as e:
+            self._socket = None
+            raise IcapConnectionError(
+                f"SSL error connecting to {self.host}:{self.port}: {e}"
+            ) from e
         except OSError as e:
             self._socket = None
             raise IcapConnectionError(f"Failed to connect to {self.host}:{self.port}: {e}") from e

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import ssl
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, Optional, Union
 
@@ -17,6 +18,8 @@ class AsyncIcapClient(IcapProtocol):
     Async ICAP (Internet Content Adaptation Protocol) Client implementation.
     Based on RFC 3507.
 
+    Supports optional SSL/TLS encryption for secure connections to ICAP servers.
+
     Example:
         >>> import asyncio
         >>> from pycap import AsyncIcapClient
@@ -27,6 +30,19 @@ class AsyncIcapClient(IcapProtocol):
         ...         print(f"Clean: {response.is_no_modification}")
         >>>
         >>> asyncio.run(scan())
+
+    Example with SSL:
+        >>> import asyncio
+        >>> import ssl
+        >>> from pycap import AsyncIcapClient
+        >>>
+        >>> async def scan_secure():
+        ...     ssl_context = ssl.create_default_context()
+        ...     async with AsyncIcapClient('icap.example.com', ssl_context=ssl_context) as client:
+        ...         response = await client.scan_bytes(b"content")
+        ...         print(f"Clean: {response.is_no_modification}")
+        >>>
+        >>> asyncio.run(scan_secure())
     """
 
     def __init__(
@@ -34,6 +50,7 @@ class AsyncIcapClient(IcapProtocol):
         address: str,
         port: int = IcapProtocol.DEFAULT_PORT,
         timeout: float = 10.0,
+        ssl_context: Optional[ssl.SSLContext] = None,
     ) -> None:
         """
         Initialize async ICAP client.
@@ -42,13 +59,29 @@ class AsyncIcapClient(IcapProtocol):
             address: ICAP server hostname or IP address
             port: ICAP server port (default: 1344)
             timeout: Operation timeout in seconds (default: 10.0)
+            ssl_context: Optional SSL context for TLS connections. If provided,
+                the connection will be wrapped with SSL/TLS. You can create a
+                context using ssl.create_default_context() for standard TLS,
+                or customize it for specific certificate requirements.
+
+        Example:
+            >>> # Standard TLS with system CA certificates
+            >>> ssl_ctx = ssl.create_default_context()
+            >>> client = AsyncIcapClient('icap.example.com', ssl_context=ssl_ctx)
+
+            >>> # TLS with custom CA certificate
+            >>> ssl_ctx = ssl.create_default_context(cafile='/path/to/ca.pem')
+            >>> client = AsyncIcapClient('icap.example.com', ssl_context=ssl_ctx)
         """
         self._address: str = address
         self._port: int = port
         self._timeout: float = timeout
+        self._ssl_context: Optional[ssl.SSLContext] = ssl_context
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
-        logger.debug(f"Initialized AsyncIcapClient for {address}:{port}")
+        logger.debug(
+            f"Initialized AsyncIcapClient for {address}:{port} (SSL: {ssl_context is not None})"
+        )
 
     @property
     def host(self) -> str:
@@ -68,8 +101,12 @@ class AsyncIcapClient(IcapProtocol):
     async def connect(self) -> None:
         """Connect to the ICAP server.
 
+        If an ssl_context was provided during initialization, the connection
+        will be wrapped with SSL/TLS.
+
         Raises:
-            IcapConnectionError: If connection to the server fails.
+            IcapConnectionError: If connection to the server fails, including
+                SSL/TLS handshake errors.
             IcapTimeoutError: If connection times out.
         """
         if self._writer is not None:
@@ -79,12 +116,23 @@ class AsyncIcapClient(IcapProtocol):
         logger.info(f"Connecting to {self.host}:{self.port}")
         try:
             self._reader, self._writer = await asyncio.wait_for(
-                asyncio.open_connection(self._address, self._port),
+                asyncio.open_connection(
+                    self._address,
+                    self._port,
+                    ssl=self._ssl_context,
+                    server_hostname=self.host if self._ssl_context else None,
+                ),
                 timeout=self._timeout,
             )
-            logger.info(f"Connected to {self.host}:{self.port}")
+            logger.info(
+                f"Connected to {self.host}:{self.port} (SSL: {self._ssl_context is not None})"
+            )
         except asyncio.TimeoutError as e:
             raise IcapTimeoutError(f"Connection to {self.host}:{self.port} timed out") from e
+        except ssl.SSLError as e:
+            raise IcapConnectionError(
+                f"SSL error connecting to {self.host}:{self.port}: {e}"
+            ) from e
         except OSError as e:
             raise IcapConnectionError(f"Failed to connect to {self.host}:{self.port}: {e}") from e
 

@@ -25,6 +25,11 @@ A pure Python ICAP (Internet Content Adaptation Protocol) client with no externa
 - [Async Usage](#async-usage)
   - [Basic Async Example](#basic-async-example)
   - [Concurrent Scanning](#concurrent-scanning)
+- [SSL/TLS Support](#ssltls-support)
+  - [Basic TLS Connection](#basic-tls-connection)
+  - [TLS with Custom CA Certificate](#tls-with-custom-ca-certificate)
+  - [TLS with Client Certificate Authentication](#tls-with-client-certificate-authentication)
+  - [Async Client with TLS](#async-client-with-tls)
 - [Logging](#logging)
 - [Error Handling](#error-handling)
 - [Testing Virus Detection with EICAR](#testing-virus-detection-with-eicar)
@@ -350,6 +355,71 @@ asyncio.run(main())
 
 **Note:** Each `AsyncIcapClient` instance creates its own connection. For true concurrency, create multiple client instances (one per concurrent scan) as shown above.
 
+## SSL/TLS Support
+
+Both sync and async clients support SSL/TLS encryption for secure connections to ICAP servers. Pass an `ssl.SSLContext` to the client constructor:
+
+### Basic TLS Connection
+
+```python
+import ssl
+from pycap import IcapClient
+
+# Create SSL context with system CA certificates
+ssl_context = ssl.create_default_context()
+
+with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
+    response = client.scan_bytes(b"content to scan")
+    print(f"Clean: {response.is_no_modification}")
+```
+
+### TLS with Custom CA Certificate
+
+```python
+import ssl
+from pycap import IcapClient
+
+# Use a custom CA certificate
+ssl_context = ssl.create_default_context(cafile='/path/to/ca.pem')
+
+with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
+    response = client.scan_file('/path/to/file.pdf')
+```
+
+### TLS with Client Certificate Authentication
+
+```python
+import ssl
+from pycap import IcapClient
+
+# Create context with client certificate for mutual TLS
+ssl_context = ssl.create_default_context()
+ssl_context.load_cert_chain(
+    certfile='/path/to/client.pem',
+    keyfile='/path/to/client-key.pem'
+)
+
+with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
+    response = client.options('avscan')
+```
+
+### Async Client with TLS
+
+```python
+import asyncio
+import ssl
+from pycap import AsyncIcapClient
+
+async def secure_scan():
+    ssl_context = ssl.create_default_context()
+
+    async with AsyncIcapClient('icap.example.com', ssl_context=ssl_context) as client:
+        response = await client.scan_bytes(b"content")
+        print(f"Clean: {response.is_no_modification}")
+
+asyncio.run(secure_scan())
+```
+
 ## Logging
 
 The library uses Python's standard `logging` module. Configure it to see detailed operation logs:
@@ -570,10 +640,6 @@ The plugin is automatically registered when PyCap is installed (via the `pytest1
 - **[RFC 3507](https://datatracker.ietf.org/doc/rfc3507/)**: Internet Content Adaptation Protocol (ICAP)
 - Default Port: 1344
 - Methods: OPTIONS, REQMOD, RESPMOD
-
-### Limitations
-
-- **Preview mode not yet implemented** - ICAP preview mode (where the client sends only the first N bytes before waiting for a server decision) is not currently supported. See [Issue #17](https://github.com/CaptainDriftwood/pycap/issues/17) for progress on this feature.
 
 ## License
 

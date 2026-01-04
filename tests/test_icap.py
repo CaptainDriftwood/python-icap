@@ -2,9 +2,11 @@
 Unit tests for PyCap ICAP client using pytest.
 """
 
+import ssl
+
 import pytest
 
-from pycap import IcapClient, IcapResponse
+from pycap import AsyncIcapClient, IcapClient, IcapResponse
 
 # IcapResponse tests
 
@@ -139,3 +141,36 @@ def test_send_with_preview_method_exists():
     client = IcapClient("localhost", 1344)
     assert hasattr(client, "_send_with_preview")
     assert callable(client._send_with_preview)
+
+
+# SSL/TLS tests
+
+
+def test_client_accepts_ssl_context_parameter():
+    """Test that IcapClient accepts ssl_context parameter."""
+    ssl_context = ssl.create_default_context()
+    client = IcapClient("localhost", 1344, ssl_context=ssl_context)
+
+    # Verify the ssl_context is stored
+    assert client._ssl_context is ssl_context
+
+
+def test_client_ssl_context_defaults_to_none():
+    """Test that ssl_context defaults to None."""
+    client = IcapClient("localhost", 1344)
+    assert client._ssl_context is None
+
+
+def test_async_client_accepts_ssl_context_parameter():
+    """Test that AsyncIcapClient accepts ssl_context parameter."""
+    ssl_context = ssl.create_default_context()
+    client = AsyncIcapClient("localhost", 1344, ssl_context=ssl_context)
+
+    # Verify the ssl_context is stored
+    assert client._ssl_context is ssl_context
+
+
+def test_async_client_ssl_context_defaults_to_none():
+    """Test that ssl_context defaults to None for async client."""
+    client = AsyncIcapClient("localhost", 1344)
+    assert client._ssl_context is None
