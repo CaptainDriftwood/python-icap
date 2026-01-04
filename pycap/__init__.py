@@ -1,4 +1,5 @@
 import logging
+from importlib.metadata import version
 
 from .async_icap import AsyncIcapClient
 from .exception import (
@@ -14,7 +15,7 @@ from .response import IcapResponse
 # Set up logging with NullHandler to avoid "No handler found" warnings
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = "0.1.0"
+__version__ = version("pycap")
 
 __all__ = [
     "AsyncIcapClient",
