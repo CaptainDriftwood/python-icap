@@ -15,6 +15,7 @@ import pytest
 from pycap import AsyncIcapClient, IcapClient
 
 from .builder import IcapResponseBuilder
+from .mock import MockAsyncIcapClient, MockCall, MockIcapClient
 
 __all__ = [
     # Plugin hooks
@@ -27,6 +28,10 @@ __all__ = [
     "sample_file",
     # Builders
     "IcapResponseBuilder",
+    # Mock clients
+    "MockAsyncIcapClient",
+    "MockCall",
+    "MockIcapClient",
 ]
 
 
