@@ -25,6 +25,18 @@ test-integration-ssl *args:
 test-all *args:
     uv run pytest {{ args }}
 
+# Run tests across all Python versions (3.8-3.14)
+test-all-versions *args:
+    uv run nox -s tests {{ args }}
+
+# Run tests for a specific Python version
+test-version version *args:
+    uv run nox -s tests-{{ version }} {{ args }}
+
+# Run all nox sessions
+nox *args:
+    uv run nox {{ args }}
+
 # Run linter
 lint:
     uv run ruff check .
