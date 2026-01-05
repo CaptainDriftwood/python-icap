@@ -1,4 +1,4 @@
-# PyCap - Python ICAP Client
+# Pycap - Python ICAP Client
 
 [![Python 3.8 | 3.9 | 3.10 | 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -50,7 +50,7 @@ A pure Python ICAP (Internet Content Adaptation Protocol) client with no externa
 
 ## Overview
 
-PyCap is a Python library for communicating with ICAP servers. It supports the standard ICAP methods:
+Pycap is a Python library for communicating with ICAP servers. It supports the standard ICAP methods:
 - **OPTIONS** - Query server capabilities
 - **REQMOD** - Request modification mode (scan/modify HTTP requests)
 - **RESPMOD** - Response modification mode (scan/modify HTTP responses)
@@ -304,7 +304,7 @@ else:
 
 ## Async Usage
 
-PyCap includes an async client (`AsyncIcapClient`) for use with `asyncio`. The async client provides the same API as the sync client but with `async`/`await` syntax.
+Pycap includes an async client (`AsyncIcapClient`) for use with `asyncio`. The async client provides the same API as the sync client but with `async`/`await` syntax.
 
 ### Basic Async Example
 
@@ -587,7 +587,7 @@ pycap/
 
 ## Pytest Plugin
 
-PyCap includes a pytest plugin (`pytest_pycap`) that provides fixtures for testing ICAP integrations.
+Pycap includes a pytest plugin (`pytest_pycap`) that provides fixtures for testing ICAP integrations.
 
 ### Available Fixtures
 
@@ -638,7 +638,7 @@ async def test_async_custom_server(async_icap_client):
     assert response.is_success
 ```
 
-The plugin is automatically registered when PyCap is installed (via the `pytest11` entry point).
+The plugin is automatically registered when Pycap is installed (via the `pytest11` entry point).
 
 ## Protocol Reference
 
