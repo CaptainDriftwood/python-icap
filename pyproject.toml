@@ -58,6 +58,8 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "ssl: marks tests requiring SSL/TLS certificates (run: just generate-certs)",
+    "icap(host, port, timeout, ssl_context): configure ICAP client for testing",
+    "icap_mock(response, virus_name, raises, options, respmod, reqmod): configure mock ICAP client",
 ]
 timeout = 120  # Default timeout for all tests (seconds)
 timeout_method = "thread"  # Use thread-based timeout for better compatibility
