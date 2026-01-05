@@ -168,7 +168,7 @@ This allows the ICAP server to efficiently parse the message without scanning th
 
 ## Installation
 
-> **Note:** This package is not yet published to PyPI due to a name collision. Install directly from the source.
+> **Note:** This package is not yet published to PyPI due to a name collision. Install directly from source.
 
 ```bash
 # Standard installation
@@ -534,7 +534,7 @@ The Docker Compose setup includes:
 - **ClamAV**: Antivirus engine
 - **squidclamav**: Integration adapter
 
-See `docker/` directory for configuration details.
+See the `docker/` directory for configuration details.
 
 ## Development
 
@@ -553,7 +553,7 @@ uv run pytest
 uv run ruff check
 
 # Run type checker
-uv run pyright
+uv run ty check pycap
 ```
 
 Or using just (run `just` to see all available commands):
