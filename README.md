@@ -1,5 +1,10 @@
 # PyCap - Python ICAP Client
 
+[![Python 3.8 | 3.9 | 3.10 | 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 A pure Python ICAP (Internet Content Adaptation Protocol) client with no external dependencies. Implements RFC 3507 for communicating with ICAP servers like c-icap and SquidClamav, supporting OPTIONS, REQMOD, and RESPMOD methods.
 
 ## Table of Contents
