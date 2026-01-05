@@ -12,7 +12,8 @@ from typing import Any, AsyncGenerator, Generator
 
 import pytest
 
-from pycap import AsyncIcapClient, IcapClient
+from pycap import AsyncIcapClient, IcapClient, IcapResponse
+from pycap.exception import IcapConnectionError, IcapTimeoutError
 
 from .builder import IcapResponseBuilder
 from .mock import MockAsyncIcapClient, MockCall, MockIcapClient
@@ -26,6 +27,18 @@ __all__ = [
     "icap_service_config",
     "sample_clean_content",
     "sample_file",
+    # Response fixtures
+    "icap_response_builder",
+    "icap_response_clean",
+    "icap_response_virus",
+    "icap_response_options",
+    "icap_response_error",
+    # Mock client fixtures
+    "mock_icap_client",
+    "mock_async_icap_client",
+    "mock_icap_client_virus",
+    "mock_icap_client_timeout",
+    "mock_icap_client_connection_error",
     # Builders
     "IcapResponseBuilder",
     # Mock clients
@@ -176,3 +189,93 @@ def sample_file(tmp_path: Path) -> Path:
     test_file = tmp_path / "sample.txt"
     test_file.write_bytes(b"Sample file content for ICAP testing.")
     return test_file
+
+
+# === Response Fixtures ===
+
+
+@pytest.fixture
+def icap_response_builder() -> IcapResponseBuilder:
+    """Factory for building custom IcapResponse objects."""
+    return IcapResponseBuilder()
+
+
+@pytest.fixture
+def icap_response_clean() -> IcapResponse:
+    """Pre-built 204 No Modification response."""
+    return IcapResponseBuilder().clean().build()
+
+
+@pytest.fixture
+def icap_response_virus() -> IcapResponse:
+    """Pre-built virus detection response."""
+    return IcapResponseBuilder().virus().build()
+
+
+@pytest.fixture
+def icap_response_options() -> IcapResponse:
+    """Pre-built OPTIONS response with typical server capabilities."""
+    return IcapResponseBuilder().options().build()
+
+
+@pytest.fixture
+def icap_response_error() -> IcapResponse:
+    """Pre-built 500 Internal Server Error response."""
+    return IcapResponseBuilder().error().build()
+
+
+# === Mock Client Fixtures ===
+
+
+@pytest.fixture
+def mock_icap_client() -> MockIcapClient:
+    """
+    Mock ICAP client with default clean responses.
+
+    Example:
+        def test_scan(mock_icap_client):
+            response = mock_icap_client.scan_bytes(b"content")
+            assert response.is_no_modification
+    """
+    return MockIcapClient()
+
+
+@pytest.fixture
+def mock_async_icap_client() -> MockAsyncIcapClient:
+    """
+    Async mock ICAP client with default clean responses.
+
+    Example:
+        async def test_async_scan(mock_async_icap_client):
+            async with mock_async_icap_client as client:
+                response = await client.scan_bytes(b"content")
+                assert response.is_no_modification
+    """
+    return MockAsyncIcapClient()
+
+
+# === Pre-configured Mock Fixtures ===
+
+
+@pytest.fixture
+def mock_icap_client_virus() -> MockIcapClient:
+    """Mock client configured to detect viruses."""
+    client = MockIcapClient()
+    client.on_respmod(IcapResponseBuilder().virus().build())
+    return client
+
+
+@pytest.fixture
+def mock_icap_client_timeout() -> MockIcapClient:
+    """Mock client that simulates timeouts."""
+    client = MockIcapClient()
+    client.on_any(raises=IcapTimeoutError("Connection timed out"))
+    return client
+
+
+@pytest.fixture
+def mock_icap_client_connection_error() -> MockIcapClient:
+    """Mock client that simulates connection failures."""
+    client = MockIcapClient()
+    client.on_any(raises=IcapConnectionError("Connection refused"))
+    return client
