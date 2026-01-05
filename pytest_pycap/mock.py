@@ -58,15 +58,9 @@ class MockIcapClient:
         self._calls: list[MockCall] = []
 
         # Default responses (clean/success)
-        self._options_response: IcapResponse | Exception = (
-            IcapResponseBuilder().options().build()
-        )
-        self._respmod_response: IcapResponse | Exception = (
-            IcapResponseBuilder().clean().build()
-        )
-        self._reqmod_response: IcapResponse | Exception = (
-            IcapResponseBuilder().clean().build()
-        )
+        self._options_response: IcapResponse | Exception = IcapResponseBuilder().options().build()
+        self._respmod_response: IcapResponse | Exception = IcapResponseBuilder().clean().build()
+        self._reqmod_response: IcapResponse | Exception = IcapResponseBuilder().clean().build()
 
     # === Configuration API ===
 
@@ -146,9 +140,7 @@ class MockIcapClient:
         else:
             matching = [c for c in self._calls if c.method == method]
             if matching:
-                raise AssertionError(
-                    f"Method '{method}' was called {len(matching)} times"
-                )
+                raise AssertionError(f"Method '{method}' was called {len(matching)} times")
 
     def assert_scanned(self, data: bytes) -> None:
         """Assert specific content was scanned."""
@@ -210,9 +202,7 @@ class MockIcapClient:
             )
         )
 
-    def _get_response(
-        self, response_or_exception: IcapResponse | Exception
-    ) -> IcapResponse:
+    def _get_response(self, response_or_exception: IcapResponse | Exception) -> IcapResponse:
         """Return response or raise exception."""
         if isinstance(response_or_exception, Exception):
             raise response_or_exception
