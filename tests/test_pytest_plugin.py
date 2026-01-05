@@ -152,3 +152,323 @@ def test_icap_marker_with_ssl_context(pytester):
     )
     result = pytester.runpytest("--strict-markers")
     result.assert_outcomes(passed=1)
+
+
+# === Mock Fixture Pytester Tests ===
+
+
+def test_mock_icap_client_fixture(pytester):
+    """Verify mock_icap_client fixture returns clean responses by default."""
+    pytester.makepyfile(
+        """
+        def test_mock_client(mock_icap_client):
+            response = mock_icap_client.scan_bytes(b"test content")
+            assert response.is_no_modification
+            assert response.status_code == 204
+            mock_icap_client.assert_called("scan_bytes", times=1)
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_mock_async_icap_client_fixture(pytester):
+    """Verify mock_async_icap_client fixture works with async tests."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.asyncio
+        async def test_async_mock_client(mock_async_icap_client):
+            async with mock_async_icap_client as client:
+                response = await client.scan_bytes(b"test content")
+                assert response.is_no_modification
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_mock_icap_client_virus_fixture(pytester):
+    """Verify mock_icap_client_virus fixture detects viruses."""
+    pytester.makepyfile(
+        """
+        def test_virus_detection(mock_icap_client_virus):
+            response = mock_icap_client_virus.scan_bytes(b"malware")
+            assert not response.is_no_modification
+            assert "X-Virus-ID" in response.headers
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_mock_icap_client_timeout_fixture(pytester):
+    """Verify mock_icap_client_timeout fixture raises timeout errors."""
+    pytester.makepyfile(
+        """
+        import pytest
+        from pycap.exception import IcapTimeoutError
+
+        def test_timeout(mock_icap_client_timeout):
+            with pytest.raises(IcapTimeoutError):
+                mock_icap_client_timeout.scan_bytes(b"content")
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_mock_icap_client_connection_error_fixture(pytester):
+    """Verify mock_icap_client_connection_error fixture raises connection errors."""
+    pytester.makepyfile(
+        """
+        import pytest
+        from pycap.exception import IcapConnectionError
+
+        def test_connection_error(mock_icap_client_connection_error):
+            with pytest.raises(IcapConnectionError):
+                mock_icap_client_connection_error.scan_bytes(b"content")
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+# === Response Fixture Pytester Tests ===
+
+
+def test_icap_response_builder_fixture(pytester):
+    """Verify icap_response_builder fixture provides a builder instance."""
+    pytester.makepyfile(
+        """
+        from pytest_pycap import IcapResponseBuilder
+
+        def test_builder(icap_response_builder):
+            assert isinstance(icap_response_builder, IcapResponseBuilder)
+            response = icap_response_builder.virus("Test.Virus").build()
+            assert response.headers["X-Virus-ID"] == "Test.Virus"
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_response_clean_fixture(pytester):
+    """Verify icap_response_clean fixture provides 204 response."""
+    pytester.makepyfile(
+        """
+        def test_clean_response(icap_response_clean):
+            assert icap_response_clean.status_code == 204
+            assert icap_response_clean.is_no_modification
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_response_virus_fixture(pytester):
+    """Verify icap_response_virus fixture provides virus detection response."""
+    pytester.makepyfile(
+        """
+        def test_virus_response(icap_response_virus):
+            assert icap_response_virus.status_code == 200
+            assert "X-Virus-ID" in icap_response_virus.headers
+            assert "X-Infection-Found" in icap_response_virus.headers
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_response_error_fixture(pytester):
+    """Verify icap_response_error fixture provides 500 error response."""
+    pytester.makepyfile(
+        """
+        def test_error_response(icap_response_error):
+            assert icap_response_error.status_code == 500
+            assert icap_response_error.status_message == "Internal Server Error"
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+# === icap_mock Marker Pytester Tests ===
+
+
+def test_icap_mock_marker_registered(pytester):
+    """Verify icap_mock marker is properly registered."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.icap_mock(response="clean")
+        def test_with_marker(icap_mock):
+            response = icap_mock.scan_bytes(b"test")
+            assert response.is_no_modification
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_mock_marker_virus_response(pytester):
+    """Verify icap_mock marker with response='virus'."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.icap_mock(response="virus", virus_name="Trojan.Test")
+        def test_virus(icap_mock):
+            response = icap_mock.scan_bytes(b"malware")
+            assert not response.is_no_modification
+            assert response.headers["X-Virus-ID"] == "Trojan.Test"
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_mock_marker_raises_exception(pytester):
+    """Verify icap_mock marker with raises parameter."""
+    pytester.makepyfile(
+        """
+        import pytest
+        from pycap.exception import IcapTimeoutError
+
+        @pytest.mark.icap_mock(raises=IcapTimeoutError)
+        def test_timeout(icap_mock):
+            with pytest.raises(IcapTimeoutError):
+                icap_mock.scan_bytes(b"content")
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_mock_marker_per_method_config(pytester):
+    """Verify icap_mock marker with per-method configuration."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.icap_mock(
+            respmod={"response": "virus"},
+            options={"response": "clean"},
+        )
+        def test_mixed_config(icap_mock):
+            # scan_bytes uses respmod, should return virus
+            scan_response = icap_mock.scan_bytes(b"content")
+            assert not scan_response.is_no_modification
+
+            # options configured with clean returns 204
+            options_response = icap_mock.options("avscan")
+            assert options_response.is_no_modification
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+# === Mock Client Usage Pytester Tests ===
+
+
+def test_mock_client_call_recording(pytester):
+    """Verify mock client records calls correctly."""
+    pytester.makepyfile(
+        """
+        def test_call_recording(mock_icap_client):
+            mock_icap_client.scan_bytes(b"first")
+            mock_icap_client.scan_bytes(b"second")
+            mock_icap_client.options("avscan")
+
+            assert len(mock_icap_client.calls) == 3
+            mock_icap_client.assert_called("scan_bytes", times=2)
+            mock_icap_client.assert_called("options", times=1)
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_mock_client_custom_response_configuration(pytester):
+    """Verify mock client can be configured with custom responses."""
+    pytester.makepyfile(
+        """
+        from pytest_pycap import IcapResponseBuilder
+
+        def test_custom_config(mock_icap_client):
+            # Configure custom virus response
+            mock_icap_client.on_respmod(
+                IcapResponseBuilder().virus("CustomVirus").build()
+            )
+
+            response = mock_icap_client.scan_bytes(b"content")
+            assert response.headers["X-Virus-ID"] == "CustomVirus"
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_mock_client_context_manager(pytester):
+    """Verify mock client works as context manager."""
+    pytester.makepyfile(
+        """
+        from pytest_pycap import MockIcapClient
+
+        def test_context_manager():
+            with MockIcapClient() as client:
+                assert client.is_connected
+                response = client.scan_bytes(b"test")
+                assert response.is_no_modification
+            assert not client.is_connected
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_response_builder_fluent_api(pytester):
+    """Verify IcapResponseBuilder fluent API works correctly."""
+    pytester.makepyfile(
+        """
+        from pytest_pycap import IcapResponseBuilder
+
+        def test_fluent_builder():
+            response = (
+                IcapResponseBuilder()
+                .with_status(200, "OK")
+                .with_header("X-Custom", "value")
+                .with_body(b"modified")
+                .build()
+            )
+            assert response.status_code == 200
+            assert response.headers["X-Custom"] == "value"
+            assert response.body == b"modified"
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
+
+
+def test_plugin_exports_mock_components(pytester):
+    """Verify the plugin exports mock components."""
+    pytester.makepyfile(
+        """
+        import pytest_pycap
+
+        def test_mock_exports():
+            assert hasattr(pytest_pycap, "IcapResponseBuilder")
+            assert hasattr(pytest_pycap, "MockIcapClient")
+            assert hasattr(pytest_pycap, "MockAsyncIcapClient")
+            assert hasattr(pytest_pycap, "MockCall")
+            assert hasattr(pytest_pycap, "mock_icap_client")
+            assert hasattr(pytest_pycap, "mock_async_icap_client")
+            assert hasattr(pytest_pycap, "icap_response_builder")
+            assert hasattr(pytest_pycap, "icap_mock")
+        """
+    )
+    result = pytester.runpytest()
+    result.assert_outcomes(passed=1)
