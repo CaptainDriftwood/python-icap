@@ -45,7 +45,12 @@ A pure Python ICAP (Internet Content Adaptation Protocol) client with no externa
   - [Setup](#setup)
   - [Project Structure](#project-structure)
 - [Pytest Plugin](#pytest-plugin)
-  - [Available Fixtures](#available-fixtures)
+  - [Live Client Fixtures](#live-client-fixtures)
+  - [Mock Client Fixtures](#mock-client-fixtures)
+  - [Response Fixtures](#response-fixtures)
+  - [IcapResponseBuilder](#icapresponsebuilder)
+  - [MockIcapClient](#mockicapclient)
+  - [icap_mock Marker](#icap_mock-marker)
 - [Protocol Reference](#protocol-reference)
 - [License](#license)
 
@@ -588,19 +593,21 @@ pycap/
 
 ## Pytest Plugin
 
-Pycap includes a pytest plugin (`pytest_pycap`) that provides fixtures for testing ICAP integrations.
+Pycap includes a pytest plugin (`pytest_pycap`) that provides fixtures and mocks for testing ICAP integrations without requiring a live ICAP server.
 
-### Available Fixtures
+The plugin is automatically registered when Pycap is installed (via the `pytest11` entry point).
+
+### Live Client Fixtures
+
+These fixtures connect to a real ICAP server (requires a running server):
 
 | Fixture | Description |
 |---------|-------------|
 | `icap_client` | Pre-connected `IcapClient` instance. Configurable via `@pytest.mark.icap` marker. |
-| `async_icap_client` | Pre-connected `AsyncIcapClient` instance for async tests. Configurable via `@pytest.mark.icap` marker. |
+| `async_icap_client` | Pre-connected `AsyncIcapClient` for async tests. Configurable via `@pytest.mark.icap` marker. |
 | `icap_service_config` | Default ICAP service configuration dict (host, port, service). |
 | `sample_clean_content` | Sample clean bytes content for testing. |
 | `sample_file` | Temporary sample file (Path) for testing file scanning. |
-
-**Sync Usage:**
 
 ```python
 import pytest
@@ -616,30 +623,221 @@ def test_custom_server(icap_client):
     response = icap_client.options('avscan')
     assert response.is_success
 
-# Using sample content
-def test_scan_content(icap_client, sample_clean_content):
-    response = icap_client.scan_bytes(sample_clean_content)
-    assert response.is_no_modification
-```
-
-**Async Usage:**
-
-```python
-import pytest
-
-# Basic async usage
-async def test_async_scan(async_icap_client, sample_file):
-    response = await async_icap_client.scan_file(sample_file)
-    assert response.is_no_modification
-
-# Custom configuration via marker (same marker works for both sync and async)
+# Async usage
 @pytest.mark.icap(host='icap.example.com', port=1344)
-async def test_async_custom_server(async_icap_client):
+async def test_async_scan(async_icap_client):
     response = await async_icap_client.options('avscan')
     assert response.is_success
 ```
 
-The plugin is automatically registered when Pycap is installed (via the `pytest11` entry point).
+### Mock Client Fixtures
+
+These fixtures provide mock ICAP clients that work without a server:
+
+| Fixture | Description |
+|---------|-------------|
+| `mock_icap_client` | Mock client with default clean (204) responses. |
+| `mock_async_icap_client` | Async mock client with default clean responses. |
+| `mock_icap_client_virus` | Mock client configured to return virus detection. |
+| `mock_icap_client_timeout` | Mock client that raises `IcapTimeoutError`. |
+| `mock_icap_client_connection_error` | Mock client that raises `IcapConnectionError`. |
+
+```python
+def test_scan_clean_content(mock_icap_client):
+    """Test with mock that returns clean responses."""
+    response = mock_icap_client.scan_bytes(b"safe content")
+    assert response.is_no_modification
+    mock_icap_client.assert_called("scan_bytes", times=1)
+
+def test_virus_detection(mock_icap_client_virus):
+    """Test with mock configured to detect viruses."""
+    response = mock_icap_client_virus.scan_bytes(b"malware")
+    assert not response.is_no_modification
+    assert "X-Virus-ID" in response.headers
+
+def test_timeout_handling(mock_icap_client_timeout):
+    """Test timeout error handling."""
+    with pytest.raises(IcapTimeoutError):
+        mock_icap_client_timeout.scan_bytes(b"content")
+
+async def test_async_mock(mock_async_icap_client):
+    """Test async mock client."""
+    async with mock_async_icap_client as client:
+        response = await client.scan_bytes(b"content")
+        assert response.is_no_modification
+```
+
+### Response Fixtures
+
+Pre-built `IcapResponse` objects for assertions:
+
+| Fixture | Description |
+|---------|-------------|
+| `icap_response_builder` | Factory for building custom responses. |
+| `icap_response_clean` | Pre-built 204 No Modification response. |
+| `icap_response_virus` | Pre-built virus detection response. |
+| `icap_response_options` | Pre-built OPTIONS response. |
+| `icap_response_error` | Pre-built 500 error response. |
+
+```python
+def test_with_response_fixtures(icap_response_clean, icap_response_virus):
+    """Use pre-built response fixtures for assertions."""
+    assert icap_response_clean.is_no_modification
+    assert icap_response_clean.status_code == 204
+
+    assert not icap_response_virus.is_no_modification
+    assert "X-Virus-ID" in icap_response_virus.headers
+```
+
+### IcapResponseBuilder
+
+Fluent builder for creating custom `IcapResponse` objects:
+
+```python
+from pytest_pycap import IcapResponseBuilder
+
+# Clean response (204 No Modification)
+response = IcapResponseBuilder().clean().build()
+
+# Virus detection response
+response = IcapResponseBuilder().virus("Trojan.Generic").build()
+
+# OPTIONS response with custom methods
+response = IcapResponseBuilder().options(methods=["RESPMOD"], preview=2048).build()
+
+# Error response
+response = IcapResponseBuilder().error(503, "Service Unavailable").build()
+
+# Custom response with headers and body
+response = (
+    IcapResponseBuilder()
+    .with_status(200, "OK")
+    .with_header("X-Custom", "value")
+    .with_body(b"modified content")
+    .build()
+)
+```
+
+**Builder Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `clean()` | Configure as 204 No Modification |
+| `virus(name)` | Configure as virus detected with X-Virus-ID header |
+| `options(methods, preview)` | Configure as OPTIONS response |
+| `error(code, message)` | Configure as error response |
+| `continue_response()` | Configure as 100 Continue |
+| `with_status(code, message)` | Set custom status |
+| `with_header(key, value)` | Add a header |
+| `with_headers(dict)` | Add multiple headers |
+| `with_body(bytes)` | Set response body |
+| `build()` | Create the IcapResponse |
+
+### MockIcapClient
+
+The `MockIcapClient` provides a full mock implementation with call recording:
+
+```python
+from pytest_pycap import MockIcapClient, IcapResponseBuilder
+from pycap.exception import IcapTimeoutError
+
+# Create and configure mock
+client = MockIcapClient()
+
+# Configure custom responses
+client.on_respmod(IcapResponseBuilder().virus("Trojan.Gen").build())
+client.on_options(IcapResponseBuilder().options().build())
+
+# Use like a real client
+response = client.scan_bytes(b"content")
+assert not response.is_no_modification
+
+# Assertions on calls
+client.assert_called("scan_bytes", times=1)
+client.assert_scanned(b"content")
+
+# Configure exception injection
+client.on_any(raises=IcapTimeoutError("Timeout"))
+
+# Context manager support
+with MockIcapClient() as client:
+    response = client.scan_file("/path/to/file.txt")
+```
+
+**Configuration Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `on_options(response, raises=)` | Configure OPTIONS responses |
+| `on_respmod(response, raises=)` | Configure RESPMOD/scan_* responses |
+| `on_reqmod(response, raises=)` | Configure REQMOD responses |
+| `on_any(response, raises=)` | Configure all methods at once |
+
+**Assertion Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `assert_called(method, times=)` | Assert method was called |
+| `assert_not_called(method=)` | Assert method was not called |
+| `assert_scanned(data)` | Assert specific content was scanned |
+| `reset_calls()` | Clear call history |
+| `calls` | List of `MockCall` objects |
+
+### icap_mock Marker
+
+The `@pytest.mark.icap_mock` marker provides declarative mock configuration:
+
+```python
+import pytest
+from pycap.exception import IcapTimeoutError
+
+# Configure clean response
+@pytest.mark.icap_mock(response="clean")
+def test_clean_scan(icap_mock):
+    response = icap_mock.scan_bytes(b"content")
+    assert response.is_no_modification
+
+# Configure virus detection
+@pytest.mark.icap_mock(response="virus", virus_name="Trojan.Custom")
+def test_virus_detection(icap_mock):
+    response = icap_mock.scan_bytes(b"malware")
+    assert response.headers["X-Virus-ID"] == "Trojan.Custom"
+
+# Configure error response
+@pytest.mark.icap_mock(response="error")
+def test_error_response(icap_mock):
+    response = icap_mock.scan_bytes(b"content")
+    assert response.status_code == 500
+
+# Configure exception
+@pytest.mark.icap_mock(raises=IcapTimeoutError)
+def test_timeout(icap_mock):
+    with pytest.raises(IcapTimeoutError):
+        icap_mock.scan_bytes(b"content")
+
+# Per-method configuration
+@pytest.mark.icap_mock(
+    respmod={"response": "virus"},
+    options={"response": "clean"},
+)
+def test_mixed_config(icap_mock):
+    scan_response = icap_mock.scan_bytes(b"content")
+    assert not scan_response.is_no_modification
+
+    options_response = icap_mock.options("avscan")
+    assert options_response.is_no_modification
+```
+
+**Marker Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `response` | `"clean"`, `"virus"`, `"error"`, or `IcapResponse` |
+| `virus_name` | Custom virus name (when `response="virus"`) |
+| `raises` | Exception class or instance to raise |
+| `options` | Dict with per-method config for OPTIONS |
+| `respmod` | Dict with per-method config for RESPMOD |
+| `reqmod` | Dict with per-method config for REQMOD |
 
 ## Protocol Reference
 
