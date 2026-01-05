@@ -1,5 +1,7 @@
 """Pytest configuration for pycap tests."""
 
+from __future__ import annotations
+
 import shutil
 import ssl
 import subprocess
