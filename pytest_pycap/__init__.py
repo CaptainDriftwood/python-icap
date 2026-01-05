@@ -4,21 +4,29 @@ Pytest plugin for PyCap ICAP client testing.
 This plugin provides fixtures and helpers for testing ICAP clients.
 """
 
+from __future__ import annotations
+
 import ssl
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, Generator, Optional
+from typing import Any, AsyncGenerator, Generator
 
 import pytest
 
 from pycap import AsyncIcapClient, IcapClient
 
+from .builder import IcapResponseBuilder
+
 __all__ = [
+    # Plugin hooks
     "pytest_configure",
+    # Live client fixtures
     "async_icap_client",
     "icap_client",
     "icap_service_config",
     "sample_clean_content",
     "sample_file",
+    # Builders
+    "IcapResponseBuilder",
 ]
 
 
@@ -58,7 +66,7 @@ def icap_client(request) -> Generator[IcapClient, None, None]:
     marker = request.node.get_closest_marker("icap")
 
     # Default configuration
-    config: Dict[str, Any] = {
+    config: dict[str, Any] = {
         "host": "localhost",
         "port": 1344,
         "timeout": 10,
@@ -69,7 +77,7 @@ def icap_client(request) -> Generator[IcapClient, None, None]:
     if marker and marker.kwargs:
         config.update(marker.kwargs)
 
-    ssl_context: Optional[ssl.SSLContext] = config.get("ssl_context")
+    ssl_context: ssl.SSLContext | None = config.get("ssl_context")
 
     client = IcapClient(
         config["host"],
@@ -114,7 +122,7 @@ async def async_icap_client(request) -> AsyncGenerator[AsyncIcapClient, None]:
     marker = request.node.get_closest_marker("icap")
 
     # Default configuration
-    config: Dict[str, Any] = {
+    config: dict[str, Any] = {
         "host": "localhost",
         "port": 1344,
         "timeout": 10.0,
@@ -125,7 +133,7 @@ async def async_icap_client(request) -> AsyncGenerator[AsyncIcapClient, None]:
     if marker and marker.kwargs:
         config.update(marker.kwargs)
 
-    ssl_context: Optional[ssl.SSLContext] = config.get("ssl_context")
+    ssl_context: ssl.SSLContext | None = config.get("ssl_context")
 
     # Use async context manager for proper cleanup
     async with AsyncIcapClient(
@@ -138,7 +146,7 @@ async def async_icap_client(request) -> AsyncGenerator[AsyncIcapClient, None]:
 
 
 @pytest.fixture
-def icap_service_config() -> Dict[str, Any]:
+def icap_service_config() -> dict[str, Any]:
     """
     Provide default ICAP service configuration.
 
