@@ -39,6 +39,8 @@ __all__ = [
     "mock_icap_client_virus",
     "mock_icap_client_timeout",
     "mock_icap_client_connection_error",
+    # Marker-based fixtures
+    "icap_mock",
     # Builders
     "IcapResponseBuilder",
     # Mock clients
@@ -53,6 +55,11 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "icap(host, port, timeout, ssl_context): configure ICAP client for testing",
+    )
+    config.addinivalue_line(
+        "markers",
+        "icap_mock(response, virus_name, raises, options, respmod, reqmod): "
+        "configure mock ICAP client",
     )
 
 
@@ -278,4 +285,88 @@ def mock_icap_client_connection_error() -> MockIcapClient:
     """Mock client that simulates connection failures."""
     client = MockIcapClient()
     client.on_any(raises=IcapConnectionError("Connection refused"))
+    return client
+
+
+# === Marker-Based Configuration ===
+
+
+@pytest.fixture
+def icap_mock(request) -> MockIcapClient:
+    """
+    Configurable mock via @pytest.mark.icap_mock marker.
+
+    Marker options:
+        - response: "clean", "virus", "error", or IcapResponse instance
+        - virus_name: str (when response="virus")
+        - raises: Exception class or instance
+        - options: dict for OPTIONS method config
+        - respmod: dict for RESPMOD method config
+        - reqmod: dict for REQMOD method config
+
+    Examples:
+        @pytest.mark.icap_mock(response="clean")
+        def test_clean(icap_mock):
+            ...
+
+        @pytest.mark.icap_mock(response="virus", virus_name="Trojan.Gen")
+        def test_virus(icap_mock):
+            ...
+
+        @pytest.mark.icap_mock(raises=IcapTimeoutError)
+        def test_timeout(icap_mock):
+            ...
+
+        @pytest.mark.icap_mock(
+            options={"response": "success"},
+            respmod={"response": "virus"},
+        )
+        def test_mixed(icap_mock):
+            ...
+    """
+    client = MockIcapClient()
+    marker = request.node.get_closest_marker("icap_mock")
+
+    if marker is None:
+        return client
+
+    # Handle simple response configuration
+    response_type = marker.kwargs.get("response")
+    virus_name = marker.kwargs.get("virus_name", "EICAR-Test-Signature")
+    raises = marker.kwargs.get("raises")
+
+    if raises is not None:
+        if isinstance(raises, type) and issubclass(raises, Exception):
+            raises = raises("Mock exception")
+        client.on_any(raises=raises)
+    elif response_type == "clean":
+        client.on_any(IcapResponseBuilder().clean().build())
+    elif response_type == "virus":
+        client.on_any(IcapResponseBuilder().virus(virus_name).build())
+    elif response_type == "error":
+        client.on_any(IcapResponseBuilder().error().build())
+    elif isinstance(response_type, IcapResponse):
+        client.on_any(response_type)
+
+    # Handle per-method configuration
+    for method in ("options", "respmod", "reqmod"):
+        method_config = marker.kwargs.get(method)
+        if method_config:
+            configure_method = getattr(client, f"on_{method}")
+            if "raises" in method_config:
+                exc = method_config["raises"]
+                if isinstance(exc, type) and issubclass(exc, Exception):
+                    exc = exc("Mock exception")
+                configure_method(raises=exc)
+            elif "response" in method_config:
+                resp = method_config["response"]
+                if resp == "clean":
+                    configure_method(IcapResponseBuilder().clean().build())
+                elif resp == "virus":
+                    configure_method(IcapResponseBuilder().virus().build())
+                elif resp == "error":
+                    configure_method(IcapResponseBuilder().error().build())
+                elif isinstance(resp, IcapResponse):
+                    configure_method(resp)
+
     return client
