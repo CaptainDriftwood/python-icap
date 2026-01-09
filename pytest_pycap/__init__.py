@@ -143,6 +143,11 @@ def pytest_configure(config):
         "icap_mock(response, virus_name, raises, options, respmod, reqmod): "
         "configure mock ICAP client",
     )
+    config.addinivalue_line(
+        "markers",
+        "icap_response(response, virus_name, code, message): "
+        "add a response to the mock client's queue (stackable)",
+    )
 
 
 @pytest.fixture
@@ -373,20 +378,72 @@ def mock_icap_client_connection_error() -> MockIcapClient:
 # === Marker-Based Configuration ===
 
 
+def _resolve_marker_response(marker) -> IcapResponse:
+    """
+    Convert an icap_response marker to an IcapResponse object.
+
+    Supports:
+        - @pytest.mark.icap_response("clean")
+        - @pytest.mark.icap_response("virus")
+        - @pytest.mark.icap_response("virus", virus_name="Trojan.Gen")
+        - @pytest.mark.icap_response("error")
+        - @pytest.mark.icap_response("error", code=503, message="Unavailable")
+        - @pytest.mark.icap_response(response_object)
+
+    Args:
+        marker: A pytest marker from iter_markers("icap_response")
+
+    Returns:
+        IcapResponse object based on marker configuration.
+
+    Raises:
+        ValueError: If marker has invalid arguments.
+    """
+    # Handle positional argument: preset string or IcapResponse instance
+    if marker.args:
+        arg = marker.args[0]
+        if isinstance(arg, IcapResponse):
+            return arg
+        elif arg == "clean":
+            return IcapResponseBuilder().clean().build()
+        elif arg == "virus":
+            virus_name = marker.kwargs.get("virus_name", "EICAR-Test-Signature")
+            return IcapResponseBuilder().virus(virus_name).build()
+        elif arg == "error":
+            code = marker.kwargs.get("code", 500)
+            message = marker.kwargs.get("message", "Internal Server Error")
+            return IcapResponseBuilder().error(code, message).build()
+        else:
+            raise ValueError(f"Unknown icap_response preset: {arg!r}")
+
+    # Handle keyword argument: response=...
+    if "response" in marker.kwargs:
+        return marker.kwargs["response"]
+
+    raise ValueError(
+        f"Invalid icap_response marker: expected preset string or response object, "
+        f"got args={marker.args}, kwargs={marker.kwargs}"
+    )
+
+
 @pytest.fixture
 def icap_mock(request) -> MockIcapClient:
     """
-    Configurable mock via @pytest.mark.icap_mock marker.
+    Configurable mock via markers.
 
-    Marker options:
+    Supports two marker types:
+
+    1. **@pytest.mark.icap_mock** - Configure overall mock behavior:
         - response: "clean", "virus", "error", or IcapResponse instance
         - virus_name: str (when response="virus")
         - raises: Exception class or instance
-        - options: dict for OPTIONS method config
-        - respmod: dict for RESPMOD method config
-        - reqmod: dict for REQMOD method config
+        - options/respmod/reqmod: dict for per-method config
 
-    Examples:
+    2. **@pytest.mark.icap_response** (stackable) - Queue responses:
+        Stack multiple markers to define a sequence of responses consumed in order.
+        Responses are queued top-to-bottom as written in the source.
+
+    Examples - icap_mock marker:
         @pytest.mark.icap_mock(response="clean")
         def test_clean(icap_mock):
             ...
@@ -395,18 +452,36 @@ def icap_mock(request) -> MockIcapClient:
         def test_virus(icap_mock):
             ...
 
-        @pytest.mark.icap_mock(raises=IcapTimeoutError)
-        def test_timeout(icap_mock):
-            ...
+    Examples - Stacked icap_response markers:
+        @pytest.mark.icap_response("clean")
+        @pytest.mark.icap_response("virus")
+        @pytest.mark.icap_response("clean")
+        def test_sequence(icap_mock):
+            r1 = icap_mock.scan_bytes(b"file1")  # clean
+            r2 = icap_mock.scan_bytes(b"file2")  # virus
+            r3 = icap_mock.scan_bytes(b"file3")  # clean
 
-        @pytest.mark.icap_mock(
-            options={"response": "success"},
-            respmod={"response": "virus"},
-        )
-        def test_mixed(icap_mock):
-            ...
+        @pytest.mark.icap_response("virus", virus_name="Trojan.Gen")
+        def test_named_virus(icap_mock):
+            response = icap_mock.scan_bytes(b"file")
+            assert response.headers["X-Virus-ID"] == "Trojan.Gen"
+
+        @pytest.mark.icap_response("error", code=503, message="Unavailable")
+        def test_custom_error(icap_mock):
+            response = icap_mock.scan_bytes(b"file")
+            assert response.status_code == 503
     """
     client = MockIcapClient()
+
+    # Collect stacked @pytest.mark.icap_response markers
+    # iter_markers returns closest (innermost) first, but decorators are applied
+    # bottom-up, so we reverse to get top-to-bottom visual order
+    response_markers = list(request.node.iter_markers("icap_response"))
+    if response_markers:
+        responses = [_resolve_marker_response(m) for m in reversed(response_markers)]
+        client.on_respmod(*responses)
+
+    # Also handle @pytest.mark.icap_mock configuration
     marker = request.node.get_closest_marker("icap_mock")
 
     if marker is None:

@@ -472,3 +472,181 @@ def test_plugin_exports_mock_components(pytester):
     )
     result = pytester.runpytest()
     result.assert_outcomes(passed=1)
+
+
+# === Stacked icap_response Marker Tests ===
+
+
+def test_icap_response_marker_registered(pytester):
+    """Verify icap_response marker is properly registered."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.icap_response("clean")
+        def test_with_marker(icap_mock):
+            response = icap_mock.scan_bytes(b"test")
+            assert response.is_no_modification
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_response_marker_virus_preset(pytester):
+    """Verify icap_response marker with virus preset."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.icap_response("virus")
+        def test_virus_preset(icap_mock):
+            response = icap_mock.scan_bytes(b"test")
+            assert not response.is_no_modification
+            assert "X-Virus-ID" in response.headers
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_response_marker_virus_with_name(pytester):
+    """Verify icap_response marker with custom virus name."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.icap_response("virus", virus_name="Trojan.Custom")
+        def test_named_virus(icap_mock):
+            response = icap_mock.scan_bytes(b"test")
+            assert response.headers["X-Virus-ID"] == "Trojan.Custom"
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_response_marker_error_preset(pytester):
+    """Verify icap_response marker with error preset."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.icap_response("error")
+        def test_error_preset(icap_mock):
+            response = icap_mock.scan_bytes(b"test")
+            assert response.status_code == 500
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_response_marker_custom_error(pytester):
+    """Verify icap_response marker with custom error code."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.icap_response("error", code=503, message="Service Unavailable")
+        def test_custom_error(icap_mock):
+            response = icap_mock.scan_bytes(b"test")
+            assert response.status_code == 503
+            assert response.status_message == "Service Unavailable"
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_stacked_icap_response_markers(pytester):
+    """Verify stacked icap_response markers create a sequence."""
+    pytester.makepyfile(
+        """
+        import pytest
+
+        @pytest.mark.icap_response("clean")
+        @pytest.mark.icap_response("virus")
+        @pytest.mark.icap_response("clean")
+        def test_sequence(icap_mock):
+            r1 = icap_mock.scan_bytes(b"file1")
+            assert r1.is_no_modification, "First should be clean"
+
+            r2 = icap_mock.scan_bytes(b"file2")
+            assert not r2.is_no_modification, "Second should be virus"
+            assert "X-Virus-ID" in r2.headers
+
+            r3 = icap_mock.scan_bytes(b"file3")
+            assert r3.is_no_modification, "Third should be clean"
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_stacked_icap_response_markers_exhaustion(pytester):
+    """Verify stacked markers raise error when exhausted."""
+    pytester.makepyfile(
+        """
+        import pytest
+        from pytest_pycap import MockResponseExhaustedError
+
+        @pytest.mark.icap_response("clean")
+        @pytest.mark.icap_response("virus")
+        def test_exhaustion(icap_mock):
+            icap_mock.scan_bytes(b"file1")  # clean
+            icap_mock.scan_bytes(b"file2")  # virus
+
+            with pytest.raises(MockResponseExhaustedError):
+                icap_mock.scan_bytes(b"file3")  # exhausted
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_response_marker_with_response_object(pytester):
+    """Verify icap_response marker accepts IcapResponse objects."""
+    pytester.makepyfile(
+        """
+        import pytest
+        from pytest_pycap import IcapResponseBuilder
+
+        custom_response = IcapResponseBuilder().with_status(418, "I'm a teapot").build()
+
+        @pytest.mark.icap_response(custom_response)
+        def test_custom_response(icap_mock):
+            response = icap_mock.scan_bytes(b"test")
+            assert response.status_code == 418
+            assert response.status_message == "I'm a teapot"
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
+
+
+def test_icap_response_marker_mixed_presets_and_objects(pytester):
+    """Verify stacked markers can mix presets and response objects."""
+    pytester.makepyfile(
+        """
+        import pytest
+        from pytest_pycap import IcapResponseBuilder
+
+        custom = IcapResponseBuilder().with_status(418, "I'm a teapot").build()
+
+        @pytest.mark.icap_response("clean")
+        @pytest.mark.icap_response(custom)
+        @pytest.mark.icap_response("virus", virus_name="Test.Virus")
+        def test_mixed(icap_mock):
+            r1 = icap_mock.scan_bytes(b"file1")
+            assert r1.is_no_modification
+
+            r2 = icap_mock.scan_bytes(b"file2")
+            assert r2.status_code == 418
+
+            r3 = icap_mock.scan_bytes(b"file3")
+            assert r3.headers["X-Virus-ID"] == "Test.Virus"
+        """
+    )
+    result = pytester.runpytest("--strict-markers")
+    result.assert_outcomes(passed=1)
