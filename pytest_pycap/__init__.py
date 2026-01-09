@@ -97,7 +97,7 @@ from pycap import AsyncIcapClient, IcapClient, IcapResponse
 from pycap.exception import IcapConnectionError, IcapTimeoutError
 
 from .builder import IcapResponseBuilder
-from .mock import MockAsyncIcapClient, MockCall, MockIcapClient
+from .mock import MockAsyncIcapClient, MockCall, MockIcapClient, MockResponseExhaustedError
 
 __all__ = [
     # Plugin hooks
@@ -128,6 +128,7 @@ __all__ = [
     "MockAsyncIcapClient",
     "MockCall",
     "MockIcapClient",
+    "MockResponseExhaustedError",
 ]
 
 

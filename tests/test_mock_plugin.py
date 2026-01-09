@@ -13,6 +13,7 @@ from pytest_pycap import (
     MockAsyncIcapClient,
     MockCall,
     MockIcapClient,
+    MockResponseExhaustedError,
 )
 
 # === IcapResponseBuilder Tests ===
@@ -465,3 +466,199 @@ def test_marker_per_method_config(icap_mock):
     # OPTIONS should still return default
     response = icap_mock.options("avscan")
     assert response.status_code == 200
+
+
+# === Response Sequence Tests ===
+
+
+def test_response_sequence_respmod():
+    """on_respmod() with multiple responses returns them in order."""
+    client = MockIcapClient()
+    clean = IcapResponseBuilder().clean().build()
+    virus = IcapResponseBuilder().virus("Trojan.Test").build()
+
+    client.on_respmod(clean, virus)
+
+    # First call returns clean
+    response1 = client.scan_bytes(b"file1")
+    assert response1.is_no_modification
+
+    # Second call returns virus
+    response2 = client.scan_bytes(b"file2")
+    assert not response2.is_no_modification
+    assert response2.headers["X-Virus-ID"] == "Trojan.Test"
+
+
+def test_response_sequence_exhausted():
+    """MockResponseExhaustedError raised when queue is empty."""
+    client = MockIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+    )
+
+    # Wait, single response goes to default, not queue
+    # Let's use two responses
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    client.scan_bytes(b"file1")  # clean
+    client.scan_bytes(b"file2")  # virus
+
+    # Third call should raise
+    with pytest.raises(MockResponseExhaustedError):
+        client.scan_bytes(b"file3")
+
+
+def test_response_sequence_options():
+    """on_options() with multiple responses returns them in order."""
+    client = MockIcapClient()
+    client.on_options(
+        IcapResponseBuilder().options(methods=["RESPMOD"]).build(),
+        IcapResponseBuilder().error(503, "Unavailable").build(),
+    )
+
+    response1 = client.options("avscan")
+    assert response1.is_success
+    assert response1.headers["Methods"] == "RESPMOD"
+
+    response2 = client.options("avscan")
+    assert response2.status_code == 503
+
+
+def test_response_sequence_reqmod():
+    """on_reqmod() with multiple responses returns them in order."""
+    client = MockIcapClient()
+    client.on_reqmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().error(500).build(),
+    )
+
+    response1 = client.reqmod("avscan", b"GET / HTTP/1.1\r\n")
+    assert response1.is_no_modification
+
+    response2 = client.reqmod("avscan", b"POST /upload HTTP/1.1\r\n")
+    assert response2.status_code == 500
+
+
+def test_response_sequence_mixed_with_exceptions():
+    """Response queues can include exceptions."""
+    client = MockIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapTimeoutError("Timeout on second call"),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    # First call returns clean
+    response1 = client.scan_bytes(b"file1")
+    assert response1.is_no_modification
+
+    # Second call raises timeout
+    with pytest.raises(IcapTimeoutError, match="Timeout on second call"):
+        client.scan_bytes(b"file2")
+
+    # Third call returns virus
+    response3 = client.scan_bytes(b"file3")
+    assert not response3.is_no_modification
+
+
+def test_single_response_no_exhaustion():
+    """Single response mode (not sequence) doesn't exhaust."""
+    client = MockIcapClient()
+    client.on_respmod(IcapResponseBuilder().virus().build())
+
+    # Can call multiple times - single response repeats
+    for _ in range(5):
+        response = client.scan_bytes(b"test")
+        assert not response.is_no_modification
+
+
+def test_reset_responses_clears_queue():
+    """reset_responses() clears queued responses and resets to defaults."""
+    client = MockIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().virus().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    # Use one response
+    client.scan_bytes(b"file1")
+
+    # Reset - should clear queue and restore defaults
+    client.reset_responses()
+
+    # Now should return default clean response (not exhaust)
+    response = client.scan_bytes(b"file2")
+    assert response.is_no_modification
+
+
+def test_sequence_across_different_methods():
+    """Each method has independent queue."""
+    client = MockIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+    client.on_options(
+        IcapResponseBuilder().options(methods=["RESPMOD"]).build(),
+        IcapResponseBuilder().options(methods=["REQMOD"]).build(),
+    )
+
+    # OPTIONS and RESPMOD queues are independent
+    assert client.options("avscan").headers["Methods"] == "RESPMOD"
+    assert client.scan_bytes(b"file1").is_no_modification
+    assert client.options("avscan").headers["Methods"] == "REQMOD"
+    assert not client.scan_bytes(b"file2").is_no_modification
+
+
+def test_scan_methods_share_respmod_queue():
+    """scan_bytes, scan_file, scan_stream all consume from respmod queue."""
+    client = MockIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus("First").build(),
+        IcapResponseBuilder().virus("Second").build(),
+    )
+
+    # Each scan method consumes from the same queue
+    assert client.scan_bytes(b"data").is_no_modification
+
+    stream = io.BytesIO(b"stream")
+    assert client.scan_stream(stream).headers["X-Virus-ID"] == "First"
+
+    # respmod directly also uses the queue
+    assert client.respmod("avscan", b"req", b"resp").headers["X-Virus-ID"] == "Second"
+
+
+@pytest.mark.asyncio
+async def test_async_response_sequence():
+    """Async mock also supports response sequences."""
+    client = MockAsyncIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    response1 = await client.scan_bytes(b"file1")
+    assert response1.is_no_modification
+
+    response2 = await client.scan_bytes(b"file2")
+    assert not response2.is_no_modification
+
+
+@pytest.mark.asyncio
+async def test_async_response_sequence_exhausted():
+    """Async mock raises MockResponseExhaustedError when queue empty."""
+    client = MockAsyncIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    await client.scan_bytes(b"file1")
+    await client.scan_bytes(b"file2")
+
+    with pytest.raises(MockResponseExhaustedError):
+        await client.scan_bytes(b"file3")

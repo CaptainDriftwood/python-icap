@@ -30,6 +30,7 @@ Example:
 from __future__ import annotations
 
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO
@@ -38,6 +39,28 @@ from .builder import IcapResponseBuilder
 
 if TYPE_CHECKING:
     from pycap import IcapResponse
+
+
+class MockResponseExhaustedError(Exception):
+    """
+    Raised when all queued mock responses have been consumed.
+
+    This error indicates that more method calls were made than responses
+    were configured. Configure additional responses or use a callback
+    for dynamic response generation.
+
+    Example:
+        >>> client = MockIcapClient()
+        >>> client.on_respmod(
+        ...     IcapResponseBuilder().clean().build(),
+        ...     IcapResponseBuilder().virus().build(),
+        ... )
+        >>> client.scan_bytes(b"file1")  # Returns clean
+        >>> client.scan_bytes(b"file2")  # Returns virus
+        >>> client.scan_bytes(b"file3")  # Raises MockResponseExhaustedError
+    """
+
+    pass
 
 
 @dataclass
@@ -191,7 +214,22 @@ class MockIcapClient:
         self._connected = False
         self._calls: list[MockCall] = []
 
-        # Default responses (clean/success)
+        # Response queues for sequential responses (Phase 1)
+        self._response_queues: dict[str, deque[IcapResponse | Exception]] = {
+            "options": deque(),
+            "respmod": deque(),
+            "reqmod": deque(),
+        }
+
+        # Track whether queue mode is active for each method
+        # When True and queue is empty, raises MockResponseExhaustedError
+        self._queue_active: dict[str, bool] = {
+            "options": False,
+            "respmod": False,
+            "reqmod": False,
+        }
+
+        # Default responses (clean/success) - used when queue mode is not active
         self._options_response: IcapResponse | Exception = IcapResponseBuilder().options().build()
         self._respmod_response: IcapResponse | Exception = IcapResponseBuilder().clean().build()
         self._reqmod_response: IcapResponse | Exception = IcapResponseBuilder().clean().build()
@@ -200,41 +238,71 @@ class MockIcapClient:
 
     def on_options(
         self,
-        response: IcapResponse | None = None,
-        *,
+        *responses: IcapResponse | Exception,
         raises: Exception | None = None,
     ) -> MockIcapClient:
         """
         Configure what the OPTIONS method returns.
 
+        Supports three usage patterns:
+            1. **Single response**: Pass one response that all calls will return.
+            2. **Response sequence**: Pass multiple responses that are consumed
+               in order. When exhausted, raises MockResponseExhaustedError.
+            3. **Exception injection**: Use raises= to make all calls raise.
+
         Args:
-            response: IcapResponse to return when options() is called.
-            raises: Exception to raise when options() is called.
-                    If both response and raises are provided, raises takes precedence.
+            *responses: One or more IcapResponse objects (or Exceptions).
+                        If multiple provided, they form a queue consumed in order.
+            raises: Exception to raise on all calls. Takes precedence over responses.
 
         Returns:
             Self for method chaining.
 
-        Example:
+        Raises:
+            MockResponseExhaustedError: When all queued responses are consumed
+                and another call is made.
+
+        Example - Single response:
             >>> client = MockIcapClient()
             >>> client.on_options(IcapResponseBuilder().options(methods=["RESPMOD"]).build())
             >>> response = client.options("avscan")
             >>> response.headers["Methods"]
             'RESPMOD'
 
+        Example - Response sequence:
+            >>> client = MockIcapClient()
+            >>> client.on_options(
+            ...     IcapResponseBuilder().options(methods=["RESPMOD"]).build(),
+            ...     IcapResponseBuilder().error(503, "Service Unavailable").build(),
+            ... )
+            >>> client.options("avscan").is_success  # True (first response)
+            >>> client.options("avscan").is_success  # False (503 error)
+
         Example - Raise exception:
             >>> client.on_options(raises=IcapConnectionError("Server unavailable"))
+
+        See Also:
+            reset_responses: Clear queued responses without clearing call history.
+            on_respmod: Configure RESPMOD method responses.
+            on_reqmod: Configure REQMOD method responses.
         """
         if raises is not None:
+            self._response_queues["options"].clear()
+            self._queue_active["options"] = False
             self._options_response = raises
-        elif response is not None:
-            self._options_response = response
+        elif len(responses) == 1:
+            self._response_queues["options"].clear()
+            self._queue_active["options"] = False
+            self._options_response = responses[0]
+        elif len(responses) > 1:
+            self._response_queues["options"].clear()
+            self._response_queues["options"].extend(responses)
+            self._queue_active["options"] = True
         return self
 
     def on_respmod(
         self,
-        response: IcapResponse | None = None,
-        *,
+        *responses: IcapResponse | Exception,
         raises: Exception | None = None,
     ) -> MockIcapClient:
         """
@@ -243,55 +311,123 @@ class MockIcapClient:
         This affects respmod(), scan_bytes(), scan_file(), and scan_stream()
         since the scan_* methods use RESPMOD internally.
 
+        Supports three usage patterns:
+            1. **Single response**: Pass one response that all calls will return.
+            2. **Response sequence**: Pass multiple responses that are consumed
+               in order. When exhausted, raises MockResponseExhaustedError.
+            3. **Exception injection**: Use raises= to make all calls raise.
+
         Args:
-            response: IcapResponse to return.
-            raises: Exception to raise. Takes precedence over response.
+            *responses: One or more IcapResponse objects (or Exceptions).
+                        If multiple provided, they form a queue consumed in order.
+            raises: Exception to raise on all calls. Takes precedence over responses.
 
         Returns:
             Self for method chaining.
 
-        Example - Virus detection:
+        Raises:
+            MockResponseExhaustedError: When all queued responses are consumed
+                and another call is made.
+
+        Example - Single response (all scans return same result):
             >>> client = MockIcapClient()
             >>> client.on_respmod(IcapResponseBuilder().virus("Trojan.Gen").build())
             >>> response = client.scan_bytes(b"content")
             >>> assert not response.is_no_modification
 
-        Example - Timeout:
+        Example - Response sequence (consumed in order):
+            >>> client = MockIcapClient()
+            >>> client.on_respmod(
+            ...     IcapResponseBuilder().clean().build(),
+            ...     IcapResponseBuilder().virus("Trojan.Gen").build(),
+            ... )
+            >>> client.scan_bytes(b"file1").is_no_modification  # True (clean)
+            >>> client.scan_bytes(b"file2").is_no_modification  # False (virus)
+
+        Example - Exception injection:
             >>> client.on_respmod(raises=IcapTimeoutError("Scan timed out"))
+
+        See Also:
+            reset_responses: Clear queued responses without clearing call history.
+            on_options: Configure OPTIONS method responses.
+            on_reqmod: Configure REQMOD method responses.
         """
         if raises is not None:
+            # Clear queue and set default to exception
+            self._response_queues["respmod"].clear()
+            self._queue_active["respmod"] = False
             self._respmod_response = raises
-        elif response is not None:
-            self._respmod_response = response
+        elif len(responses) == 1:
+            # Single response: set as default, clear queue
+            self._response_queues["respmod"].clear()
+            self._queue_active["respmod"] = False
+            self._respmod_response = responses[0]
+        elif len(responses) > 1:
+            # Multiple responses: queue them all
+            self._response_queues["respmod"].clear()
+            self._response_queues["respmod"].extend(responses)
+            self._queue_active["respmod"] = True
         return self
 
     def on_reqmod(
         self,
-        response: IcapResponse | None = None,
-        *,
+        *responses: IcapResponse | Exception,
         raises: Exception | None = None,
     ) -> MockIcapClient:
         """
         Configure what the REQMOD method returns.
 
+        Supports three usage patterns:
+            1. **Single response**: Pass one response that all calls will return.
+            2. **Response sequence**: Pass multiple responses that are consumed
+               in order. When exhausted, raises MockResponseExhaustedError.
+            3. **Exception injection**: Use raises= to make all calls raise.
+
         Args:
-            response: IcapResponse to return when reqmod() is called.
-            raises: Exception to raise. Takes precedence over response.
+            *responses: One or more IcapResponse objects (or Exceptions).
+                        If multiple provided, they form a queue consumed in order.
+            raises: Exception to raise on all calls. Takes precedence over responses.
 
         Returns:
             Self for method chaining.
 
-        Example:
+        Raises:
+            MockResponseExhaustedError: When all queued responses are consumed
+                and another call is made.
+
+        Example - Single response:
             >>> client = MockIcapClient()
             >>> client.on_reqmod(IcapResponseBuilder().clean().build())
             >>> http_req = b"POST /upload HTTP/1.1\\r\\nHost: example.com\\r\\n\\r\\n"
             >>> response = client.reqmod("avscan", http_req, b"file content")
             >>> assert response.is_no_modification
+
+        Example - Response sequence:
+            >>> client = MockIcapClient()
+            >>> client.on_reqmod(
+            ...     IcapResponseBuilder().clean().build(),
+            ...     IcapResponseBuilder().error(500).build(),
+            ... )
+            >>> client.reqmod("avscan", http_req, b"file1").is_success  # True
+            >>> client.reqmod("avscan", http_req, b"file2").is_success  # False
+
+        See Also:
+            reset_responses: Clear queued responses without clearing call history.
+            on_options: Configure OPTIONS method responses.
+            on_respmod: Configure RESPMOD method responses.
         """
         if raises is not None:
+            self._response_queues["reqmod"].clear()
+            self._queue_active["reqmod"] = False
             self._reqmod_response = raises
-        elif response is not None:
-            self._reqmod_response = response
+        elif len(responses) == 1:
+            self._response_queues["reqmod"].clear()
+            self._queue_active["reqmod"] = False
+            self._reqmod_response = responses[0]
+        elif len(responses) > 1:
+            self._response_queues["reqmod"].clear()
+            self._response_queues["reqmod"].extend(responses)
+            self._queue_active["reqmod"] = True
         return self
 
     def on_any(
@@ -304,6 +440,7 @@ class MockIcapClient:
         Configure all methods (OPTIONS, RESPMOD, REQMOD) at once.
 
         Convenience method to set the same response or exception for all methods.
+        Note: This sets a single response for all methods, not a sequence.
 
         Args:
             response: IcapResponse to return from all methods.
@@ -319,10 +456,55 @@ class MockIcapClient:
         Example - All methods fail:
             >>> client.on_any(raises=IcapConnectionError("Server down"))
         """
-        self.on_options(response, raises=raises)
-        self.on_respmod(response, raises=raises)
-        self.on_reqmod(response, raises=raises)
+        if raises is not None:
+            self.on_options(raises=raises)
+            self.on_respmod(raises=raises)
+            self.on_reqmod(raises=raises)
+        elif response is not None:
+            self.on_options(response)
+            self.on_respmod(response)
+            self.on_reqmod(response)
         return self
+
+    def reset_responses(self) -> None:
+        """
+        Clear all response queues and reset to defaults.
+
+        This clears any queued responses but does NOT clear call history.
+        Use reset_calls() to clear call history.
+
+        After calling reset_responses(), the mock returns default responses:
+        - OPTIONS: 200 OK with standard server capabilities
+        - RESPMOD/scan_*: 204 No Modification (clean)
+        - REQMOD: 204 No Modification (clean)
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.on_respmod(
+            ...     IcapResponseBuilder().virus().build(),
+            ...     IcapResponseBuilder().virus().build(),
+            ... )
+            >>> client.scan_bytes(b"file1")  # Returns virus
+            >>> client.reset_responses()
+            >>> client.scan_bytes(b"file2")  # Returns clean (default)
+            >>> len(client.calls)  # 2 - call history preserved
+            2
+
+        See Also:
+            reset_calls: Clear call history without resetting responses.
+        """
+        # Clear all queues
+        for queue in self._response_queues.values():
+            queue.clear()
+
+        # Reset queue active flags
+        for method in self._queue_active:
+            self._queue_active[method] = False
+
+        # Reset defaults
+        self._options_response = IcapResponseBuilder().options().build()
+        self._respmod_response = IcapResponseBuilder().clean().build()
+        self._reqmod_response = IcapResponseBuilder().clean().build()
 
     # === Assertion API ===
 
@@ -500,10 +682,41 @@ class MockIcapClient:
             raise response_or_exception
         return response_or_exception
 
+    def _get_method_response(self, method: str) -> IcapResponse:
+        """
+        Get the next response for the given method.
+
+        Resolution order:
+        1. If queue has items → pop and return/raise
+        2. If queue is empty AND queue_active is True → raise MockResponseExhaustedError
+        3. Otherwise → use default response
+        """
+        queue = self._response_queues[method]
+
+        if queue:
+            # Queue has items - pop the next one
+            response_or_exception = queue.popleft()
+            return self._get_response(response_or_exception)
+
+        if self._queue_active[method]:
+            # Queue was active but is now empty - all responses consumed
+            raise MockResponseExhaustedError(
+                f"All queued {method} responses have been consumed. "
+                f"Configure more responses with on_{method}() or use reset_responses()."
+            )
+
+        # Use default response for this method
+        default_responses = {
+            "options": self._options_response,
+            "respmod": self._respmod_response,
+            "reqmod": self._reqmod_response,
+        }
+        return self._get_response(default_responses[method])
+
     def options(self, service: str) -> IcapResponse:
         """Send OPTIONS request (mocked)."""
         self._record_call("options", service=service)
-        return self._get_response(self._options_response)
+        return self._get_method_response("options")
 
     def respmod(
         self,
@@ -522,7 +735,7 @@ class MockIcapClient:
             headers=headers,
             preview=preview,
         )
-        return self._get_response(self._respmod_response)
+        return self._get_method_response("respmod")
 
     def reqmod(
         self,
@@ -539,7 +752,7 @@ class MockIcapClient:
             http_body=http_body,
             headers=headers,
         )
-        return self._get_response(self._reqmod_response)
+        return self._get_method_response("reqmod")
 
     def scan_bytes(
         self,
@@ -554,7 +767,7 @@ class MockIcapClient:
             service=service,
             filename=filename,
         )
-        return self._get_response(self._respmod_response)
+        return self._get_method_response("respmod")
 
     def scan_file(
         self,
@@ -573,7 +786,7 @@ class MockIcapClient:
             service=service,
             data=data,
         )
-        return self._get_response(self._respmod_response)
+        return self._get_method_response("respmod")
 
     def scan_stream(
         self,
@@ -591,7 +804,7 @@ class MockIcapClient:
             filename=filename,
             chunk_size=chunk_size,
         )
-        return self._get_response(self._respmod_response)
+        return self._get_method_response("respmod")
 
 
 class MockAsyncIcapClient(MockIcapClient):
@@ -659,7 +872,7 @@ class MockAsyncIcapClient(MockIcapClient):
     async def options(self, service: str) -> IcapResponse:  # type: ignore[override]
         """Send OPTIONS request (mocked)."""
         self._record_call("options", service=service)
-        return self._get_response(self._options_response)
+        return self._get_method_response("options")
 
     async def respmod(  # type: ignore[override]
         self,
@@ -678,7 +891,7 @@ class MockAsyncIcapClient(MockIcapClient):
             headers=headers,
             preview=preview,
         )
-        return self._get_response(self._respmod_response)
+        return self._get_method_response("respmod")
 
     async def reqmod(  # type: ignore[override]
         self,
@@ -695,7 +908,7 @@ class MockAsyncIcapClient(MockIcapClient):
             http_body=http_body,
             headers=headers,
         )
-        return self._get_response(self._reqmod_response)
+        return self._get_method_response("reqmod")
 
     async def scan_bytes(  # type: ignore[override]
         self,
@@ -710,7 +923,7 @@ class MockAsyncIcapClient(MockIcapClient):
             service=service,
             filename=filename,
         )
-        return self._get_response(self._respmod_response)
+        return self._get_method_response("respmod")
 
     async def scan_file(  # type: ignore[override]
         self,
@@ -729,7 +942,7 @@ class MockAsyncIcapClient(MockIcapClient):
             service=service,
             data=data,
         )
-        return self._get_response(self._respmod_response)
+        return self._get_method_response("respmod")
 
     async def scan_stream(  # type: ignore[override]
         self,
@@ -745,4 +958,4 @@ class MockAsyncIcapClient(MockIcapClient):
             service=service,
             filename=filename,
         )
-        return self._get_response(self._respmod_response)
+        return self._get_method_response("respmod")
