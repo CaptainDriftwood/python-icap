@@ -13,21 +13,58 @@ logger = logging.getLogger(__name__)
 
 class IcapClient(IcapProtocol):
     """
-    ICAP (Internet Content Adaptation Protocol) Client implementation.
-    Based on RFC 3507.
+    Synchronous ICAP (Internet Content Adaptation Protocol) client.
 
-    Supports optional SSL/TLS encryption for secure connections to ICAP servers.
+    This client communicates with ICAP servers (RFC 3507) for content inspection,
+    typically used for virus scanning, content filtering, or data loss prevention.
 
-    Example with SSL:
-        >>> import ssl
+    API Overview:
+        **High-level methods (recommended for most use cases):**
+        - `scan_file(path)` - Scan a file by path
+        - `scan_bytes(data)` - Scan in-memory bytes
+        - `scan_stream(file_obj)` - Scan a file-like object
+
+        **Low-level methods (for advanced/custom ICAP interactions):**
+        - `options(service)` - Query server capabilities
+        - `respmod(service, http_req, http_resp)` - Response modification mode
+        - `reqmod(service, http_req)` - Request modification mode
+
+    Service Names:
+        The `service` parameter identifies which ICAP service to use. Common names:
+        - "avscan" or "srv_clamav" - ClamAV virus scanning (c-icap)
+        - "squidclamav" - SquidClamav service
+        - "echo" - Echo service (testing)
+
+        The exact service name depends on your ICAP server configuration.
+        Use `options(service)` to verify a service exists and check its capabilities.
+
+    Thread Safety:
+        Each IcapClient instance maintains a single socket connection.
+        Do not share instances across threads. Create one client per thread,
+        or use connection pooling.
+
+    Example:
         >>> from pycap import IcapClient
         >>>
-        >>> # Create SSL context (uses system CA certificates)
+        >>> # Recommended: use context manager for automatic cleanup
+        >>> with IcapClient('localhost', port=1344) as client:
+        ...     response = client.scan_file('/path/to/file.pdf')
+        ...     if response.is_no_modification:
+        ...         print("File is clean")
+        ...     else:
+        ...         print(f"Threat: {response.headers.get('X-Virus-ID')}")
+
+    Example with SSL/TLS:
+        >>> import ssl
         >>> ssl_context = ssl.create_default_context()
         >>>
         >>> with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
         ...     response = client.scan_bytes(b"content")
         ...     print(f"Clean: {response.is_no_modification}")
+
+    See Also:
+        - AsyncIcapClient: Async version for use with asyncio
+        - IcapResponse: Response object returned by all methods
     """
 
     def __init__(

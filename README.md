@@ -552,8 +552,8 @@ This project uses [uv](https://docs.astral.sh/uv/) for dependency management and
 # Install dependencies
 uv sync --all-extras
 
-# Run tests
-uv run pytest
+# Run unit tests
+uv run pytest -m "not integration"
 
 # Run linter
 uv run ruff check
@@ -578,7 +578,9 @@ just ci           # Run full CI checks (fmt, lint, typecheck, test)
 pycap/
 ├── pycap/
 │   ├── __init__.py       # Package exports
-│   ├── icap.py           # Main ICAP client
+│   ├── icap.py           # Synchronous ICAP client
+│   ├── async_icap.py     # Asynchronous ICAP client
+│   ├── _protocol.py      # Shared protocol constants
 │   ├── response.py       # Response handling
 │   └── exception.py      # Custom exceptions
 ├── pytest_pycap/         # Pytest plugin for ICAP testing

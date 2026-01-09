@@ -15,10 +15,35 @@ logger = logging.getLogger(__name__)
 
 class AsyncIcapClient(IcapProtocol):
     """
-    Async ICAP (Internet Content Adaptation Protocol) Client implementation.
-    Based on RFC 3507.
+    Asynchronous ICAP (Internet Content Adaptation Protocol) client.
 
-    Supports optional SSL/TLS encryption for secure connections to ICAP servers.
+    This client communicates with ICAP servers (RFC 3507) for content inspection,
+    typically used for virus scanning, content filtering, or data loss prevention.
+    Uses asyncio for non-blocking I/O operations.
+
+    API Overview:
+        **High-level methods (recommended for most use cases):**
+        - `scan_file(path)` - Scan a file by path
+        - `scan_bytes(data)` - Scan in-memory bytes
+        - `scan_stream(file_obj)` - Scan a file-like object
+
+        **Low-level methods (for advanced/custom ICAP interactions):**
+        - `options(service)` - Query server capabilities
+        - `respmod(service, http_req, http_resp)` - Response modification mode
+        - `reqmod(service, http_req)` - Request modification mode
+
+    Service Names:
+        The `service` parameter identifies which ICAP service to use. Common names:
+        - "avscan" or "srv_clamav" - ClamAV virus scanning (c-icap)
+        - "squidclamav" - SquidClamav service
+        - "echo" - Echo service (testing)
+
+        The exact service name depends on your ICAP server configuration.
+        Use `options(service)` to verify a service exists and check its capabilities.
+
+    Concurrency:
+        Each AsyncIcapClient instance maintains a single connection. For concurrent
+        scanning, create multiple client instances (one per concurrent operation).
 
     Example:
         >>> import asyncio
@@ -26,23 +51,32 @@ class AsyncIcapClient(IcapProtocol):
         >>>
         >>> async def scan():
         ...     async with AsyncIcapClient('localhost') as client:
-        ...         response = await client.scan_bytes(b"content", filename="test.txt")
-        ...         print(f"Clean: {response.is_no_modification}")
+        ...         response = await client.scan_file('/path/to/file.pdf')
+        ...         if response.is_no_modification:
+        ...             print("File is clean")
+        ...         else:
+        ...             print(f"Threat: {response.headers.get('X-Virus-ID')}")
         >>>
         >>> asyncio.run(scan())
 
-    Example with SSL:
-        >>> import asyncio
+    Example with concurrent scanning:
+        >>> async def scan_multiple(files):
+        ...     async def scan_one(path):
+        ...         async with AsyncIcapClient('localhost') as client:
+        ...             return path, await client.scan_file(path)
+        ...     return await asyncio.gather(*[scan_one(f) for f in files])
+
+    Example with SSL/TLS:
         >>> import ssl
-        >>> from pycap import AsyncIcapClient
+        >>> ssl_context = ssl.create_default_context()
         >>>
-        >>> async def scan_secure():
-        ...     ssl_context = ssl.create_default_context()
-        ...     async with AsyncIcapClient('icap.example.com', ssl_context=ssl_context) as client:
-        ...         response = await client.scan_bytes(b"content")
-        ...         print(f"Clean: {response.is_no_modification}")
-        >>>
-        >>> asyncio.run(scan_secure())
+        >>> async with AsyncIcapClient('icap.example.com', ssl_context=ssl_context) as client:
+        ...     response = await client.scan_bytes(b"content")
+        ...     print(f"Clean: {response.is_no_modification}")
+
+    See Also:
+        - IcapClient: Synchronous version for non-async code
+        - IcapResponse: Response object returned by all methods
     """
 
     def __init__(

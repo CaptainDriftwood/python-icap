@@ -1,7 +1,88 @@
 """
-Pytest plugin for PyCap ICAP client testing.
+Pytest plugin for testing code that uses the PyCap ICAP client.
 
-This plugin provides fixtures and helpers for testing ICAP clients.
+This plugin provides fixtures, mocks, and builders for testing ICAP integrations
+without requiring a live ICAP server. It supports both synchronous and asynchronous
+testing patterns.
+
+Fixture Categories:
+    **Live Client Fixtures** (require running ICAP server):
+        - `icap_client` - Pre-connected synchronous IcapClient
+        - `async_icap_client` - Pre-connected asynchronous AsyncIcapClient
+        - `icap_service_config` - Default connection configuration dict
+
+    **Mock Client Fixtures** (no server required):
+        - `mock_icap_client` - MockIcapClient with default clean responses
+        - `mock_async_icap_client` - Async mock with default clean responses
+        - `mock_icap_client_virus` - Mock configured to detect viruses
+        - `mock_icap_client_timeout` - Mock that raises IcapTimeoutError
+        - `mock_icap_client_connection_error` - Mock that raises IcapConnectionError
+
+    **Response Fixtures** (pre-built IcapResponse objects):
+        - `icap_response_builder` - Factory for building custom responses
+        - `icap_response_clean` - 204 No Modification response
+        - `icap_response_virus` - Virus detection response
+        - `icap_response_options` - OPTIONS response with server capabilities
+        - `icap_response_error` - 500 Internal Server Error response
+
+    **Marker-Based Fixtures**:
+        - `icap_mock` - Configurable mock via @pytest.mark.icap_mock decorator
+
+    **Helper Fixtures**:
+        - `sample_clean_content` - Sample bytes for testing
+        - `sample_file` - Temporary file Path for testing
+
+When to Use Each Fixture Type:
+    Use **live client fixtures** when:
+        - Running integration tests against a real ICAP server
+        - Testing actual network behavior and server responses
+        - Validating end-to-end scanning functionality
+
+    Use **mock client fixtures** when:
+        - Writing unit tests that don't need network I/O
+        - Testing error handling (timeouts, connection failures)
+        - Testing application logic that depends on scan results
+        - Running tests in CI/CD without an ICAP server
+
+    Use **response fixtures** when:
+        - Building custom mock responses for specific test scenarios
+        - Testing code that processes IcapResponse objects directly
+
+Markers:
+    @pytest.mark.icap(host, port, timeout, ssl_context)
+        Configure live client connection parameters.
+
+    @pytest.mark.icap_mock(response, virus_name, raises, options, respmod, reqmod)
+        Configure mock client behavior declaratively.
+
+Example - Unit test with mock:
+    >>> def test_scan_returns_clean(mock_icap_client):
+    ...     response = mock_icap_client.scan_bytes(b"safe content")
+    ...     assert response.is_no_modification
+    ...     mock_icap_client.assert_called("scan_bytes", times=1)
+
+Example - Integration test with live server:
+    >>> @pytest.mark.icap(host="localhost", port=1344)
+    ... def test_live_scan(icap_client, sample_file):
+    ...     response = icap_client.scan_file(sample_file)
+    ...     assert response.is_no_modification
+
+Example - Testing error handling:
+    >>> def test_timeout_handling(mock_icap_client_timeout):
+    ...     with pytest.raises(IcapTimeoutError):
+    ...         mock_icap_client_timeout.scan_bytes(b"content")
+
+Example - Custom mock configuration:
+    >>> @pytest.mark.icap_mock(response="virus", virus_name="Trojan.Test")
+    ... def test_virus_detection(icap_mock):
+    ...     response = icap_mock.scan_bytes(b"malware")
+    ...     assert not response.is_no_modification
+    ...     assert response.headers["X-Virus-ID"] == "Trojan.Test"
+
+See Also:
+    - IcapResponseBuilder: Fluent builder for custom test responses
+    - MockIcapClient: Full mock implementation with call recording
+    - MockAsyncIcapClient: Async version of the mock client
 """
 
 from __future__ import annotations
