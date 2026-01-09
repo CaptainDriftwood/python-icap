@@ -29,16 +29,98 @@ Example:
 
 from __future__ import annotations
 
+import inspect
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO, Protocol
 
 from .builder import IcapResponseBuilder
 
 if TYPE_CHECKING:
     from pycap import IcapResponse
+
+
+class ResponseCallback(Protocol):
+    """
+    Protocol for synchronous response callbacks.
+
+    Callbacks receive the request context and return an IcapResponse.
+    Use this for dynamic response generation based on content, filename,
+    or service name.
+
+    The callback signature is flexible:
+        - Required: `data` (bytes) - the content being scanned
+        - Optional keyword arguments: `service`, `filename`, and others
+
+    Example signatures (all valid):
+        >>> def simple_callback(data: bytes, **kwargs) -> IcapResponse: ...
+        >>> def detailed_callback(
+        ...     data: bytes,
+        ...     *,
+        ...     service: str,
+        ...     filename: str | None,
+        ...     **kwargs
+        ... ) -> IcapResponse: ...
+
+    Example:
+        >>> def eicar_detector(data: bytes, **kwargs) -> IcapResponse:
+        ...     if b"EICAR" in data:
+        ...         return IcapResponseBuilder().virus("EICAR-Test").build()
+        ...     return IcapResponseBuilder().clean().build()
+        >>>
+        >>> client = MockIcapClient()
+        >>> client.on_respmod(callback=eicar_detector)
+
+    See Also:
+        AsyncResponseCallback: Async version for MockAsyncIcapClient.
+        MockIcapClient.on_respmod: Configure callbacks for scan methods.
+    """
+
+    def __call__(
+        self,
+        data: bytes,
+        *,
+        service: str,
+        filename: str | None = None,
+        **kwargs: Any,
+    ) -> IcapResponse: ...
+
+
+class AsyncResponseCallback(Protocol):
+    """
+    Protocol for asynchronous response callbacks.
+
+    Async version of ResponseCallback for use with MockAsyncIcapClient.
+    Callbacks receive the request context and return an IcapResponse.
+
+    Note: MockAsyncIcapClient also accepts synchronous callbacks for
+    convenience - they will be called directly without awaiting.
+
+    Example:
+        >>> async def async_scanner(data: bytes, **kwargs) -> IcapResponse:
+        ...     # Can perform async operations if needed
+        ...     if b"EICAR" in data:
+        ...         return IcapResponseBuilder().virus("EICAR-Test").build()
+        ...     return IcapResponseBuilder().clean().build()
+        >>>
+        >>> client = MockAsyncIcapClient()
+        >>> client.on_respmod(callback=async_scanner)
+
+    See Also:
+        ResponseCallback: Sync version for MockIcapClient.
+        MockAsyncIcapClient.on_respmod: Configure callbacks for scan methods.
+    """
+
+    async def __call__(
+        self,
+        data: bytes,
+        *,
+        service: str,
+        filename: str | None = None,
+        **kwargs: Any,
+    ) -> IcapResponse: ...
 
 
 class MockResponseExhaustedError(Exception):
@@ -234,6 +316,13 @@ class MockIcapClient:
         self._respmod_response: IcapResponse | Exception = IcapResponseBuilder().clean().build()
         self._reqmod_response: IcapResponse | Exception = IcapResponseBuilder().clean().build()
 
+        # Callbacks for dynamic response generation (Phase 2)
+        self._callbacks: dict[str, ResponseCallback | AsyncResponseCallback | None] = {
+            "options": None,
+            "respmod": None,
+            "reqmod": None,
+        }
+
     # === Configuration API ===
 
     def on_options(
@@ -304,6 +393,7 @@ class MockIcapClient:
         self,
         *responses: IcapResponse | Exception,
         raises: Exception | None = None,
+        callback: ResponseCallback | None = None,
     ) -> MockIcapClient:
         """
         Configure what RESPMOD and scan methods return.
@@ -311,16 +401,20 @@ class MockIcapClient:
         This affects respmod(), scan_bytes(), scan_file(), and scan_stream()
         since the scan_* methods use RESPMOD internally.
 
-        Supports three usage patterns:
+        Supports four usage patterns:
             1. **Single response**: Pass one response that all calls will return.
             2. **Response sequence**: Pass multiple responses that are consumed
                in order. When exhausted, raises MockResponseExhaustedError.
             3. **Exception injection**: Use raises= to make all calls raise.
+            4. **Callback**: Use callback= for dynamic response generation.
 
         Args:
             *responses: One or more IcapResponse objects (or Exceptions).
                         If multiple provided, they form a queue consumed in order.
             raises: Exception to raise on all calls. Takes precedence over responses.
+            callback: Function called with (data, service=, filename=, **kwargs)
+                      that returns an IcapResponse. Used for dynamic responses.
+                      Takes precedence over responses and raises.
 
         Returns:
             Self for method chaining.
@@ -347,26 +441,45 @@ class MockIcapClient:
         Example - Exception injection:
             >>> client.on_respmod(raises=IcapTimeoutError("Scan timed out"))
 
+        Example - Dynamic callback:
+            >>> def eicar_detector(data: bytes, **kwargs) -> IcapResponse:
+            ...     if b"EICAR" in data:
+            ...         return IcapResponseBuilder().virus("EICAR-Test").build()
+            ...     return IcapResponseBuilder().clean().build()
+            >>> client = MockIcapClient()
+            >>> client.on_respmod(callback=eicar_detector)
+            >>> client.scan_bytes(b"safe").is_no_modification  # True
+            >>> client.scan_bytes(b"X5O!P%@AP...EICAR...").is_no_modification  # False
+
         See Also:
             reset_responses: Clear queued responses without clearing call history.
             on_options: Configure OPTIONS method responses.
             on_reqmod: Configure REQMOD method responses.
+            ResponseCallback: Protocol defining the callback signature.
         """
-        if raises is not None:
+        if callback is not None:
+            # Callback mode: clear other configurations
+            self._response_queues["respmod"].clear()
+            self._queue_active["respmod"] = False
+            self._callbacks["respmod"] = callback
+        elif raises is not None:
             # Clear queue and set default to exception
             self._response_queues["respmod"].clear()
             self._queue_active["respmod"] = False
+            self._callbacks["respmod"] = None
             self._respmod_response = raises
         elif len(responses) == 1:
             # Single response: set as default, clear queue
             self._response_queues["respmod"].clear()
             self._queue_active["respmod"] = False
+            self._callbacks["respmod"] = None
             self._respmod_response = responses[0]
         elif len(responses) > 1:
             # Multiple responses: queue them all
             self._response_queues["respmod"].clear()
             self._response_queues["respmod"].extend(responses)
             self._queue_active["respmod"] = True
+            self._callbacks["respmod"] = None
         return self
 
     def on_reqmod(
@@ -505,6 +618,10 @@ class MockIcapClient:
         self._options_response = IcapResponseBuilder().options().build()
         self._respmod_response = IcapResponseBuilder().clean().build()
         self._reqmod_response = IcapResponseBuilder().clean().build()
+
+        # Clear callbacks
+        for method in self._callbacks:
+            self._callbacks[method] = None
 
     # === Assertion API ===
 
@@ -687,10 +804,21 @@ class MockIcapClient:
         Get the next response for the given method.
 
         Resolution order:
-        1. If queue has items → pop and return/raise
-        2. If queue is empty AND queue_active is True → raise MockResponseExhaustedError
-        3. Otherwise → use default response
+        1. If callback is set → invoke callback with last call's kwargs
+        2. If queue has items → pop and return/raise
+        3. If queue is empty AND queue_active is True → raise MockResponseExhaustedError
+        4. Otherwise → use default response
         """
+        # Check for callback first (highest priority)
+        callback = self._callbacks.get(method)
+        if callback is not None:
+            # Get kwargs from the last recorded call
+            last_call = self._calls[-1] if self._calls else None
+            if last_call is not None:
+                return callback(**last_call.kwargs)
+            # Fallback if no call recorded (shouldn't happen in normal use)
+            return callback(data=b"", service="avscan", filename=None)
+
         queue = self._response_queues[method]
 
         if queue:
@@ -853,6 +981,29 @@ class MockAsyncIcapClient(MockIcapClient):
         IcapResponseBuilder: Fluent builder for creating test responses.
     """
 
+    async def _get_method_response_async(self, method: str) -> IcapResponse:
+        """
+        Get the next response for the given method (async version).
+
+        Supports both sync and async callbacks. Sync callbacks are called directly,
+        async callbacks are awaited.
+        """
+        # Check for callback first (highest priority)
+        callback = self._callbacks.get(method)
+        if callback is not None:
+            # Get kwargs from the last recorded call
+            last_call = self._calls[-1] if self._calls else None
+            kwargs = last_call.kwargs if last_call is not None else {"data": b"", "service": "avscan", "filename": None}
+
+            # Check if callback is async and await if needed
+            if inspect.iscoroutinefunction(callback):
+                return await callback(**kwargs)
+            else:
+                return callback(**kwargs)
+
+        # Fall back to sync implementation for non-callback cases
+        return super()._get_method_response(method)
+
     async def connect(self) -> None:  # type: ignore[override]
         """Simulate async connection (no-op)."""
         self._connected = True
@@ -872,7 +1023,7 @@ class MockAsyncIcapClient(MockIcapClient):
     async def options(self, service: str) -> IcapResponse:  # type: ignore[override]
         """Send OPTIONS request (mocked)."""
         self._record_call("options", service=service)
-        return self._get_method_response("options")
+        return await self._get_method_response_async("options")
 
     async def respmod(  # type: ignore[override]
         self,
@@ -891,7 +1042,7 @@ class MockAsyncIcapClient(MockIcapClient):
             headers=headers,
             preview=preview,
         )
-        return self._get_method_response("respmod")
+        return await self._get_method_response_async("respmod")
 
     async def reqmod(  # type: ignore[override]
         self,
@@ -908,7 +1059,7 @@ class MockAsyncIcapClient(MockIcapClient):
             http_body=http_body,
             headers=headers,
         )
-        return self._get_method_response("reqmod")
+        return await self._get_method_response_async("reqmod")
 
     async def scan_bytes(  # type: ignore[override]
         self,
@@ -923,7 +1074,7 @@ class MockAsyncIcapClient(MockIcapClient):
             service=service,
             filename=filename,
         )
-        return self._get_method_response("respmod")
+        return await self._get_method_response_async("respmod")
 
     async def scan_file(  # type: ignore[override]
         self,
@@ -942,7 +1093,7 @@ class MockAsyncIcapClient(MockIcapClient):
             service=service,
             data=data,
         )
-        return self._get_method_response("respmod")
+        return await self._get_method_response_async("respmod")
 
     async def scan_stream(  # type: ignore[override]
         self,
@@ -958,4 +1109,4 @@ class MockAsyncIcapClient(MockIcapClient):
             service=service,
             filename=filename,
         )
-        return self._get_method_response("respmod")
+        return await self._get_method_response_async("respmod")

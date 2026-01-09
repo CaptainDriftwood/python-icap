@@ -662,3 +662,228 @@ async def test_async_response_sequence_exhausted():
 
     with pytest.raises(MockResponseExhaustedError):
         await client.scan_bytes(b"file3")
+
+
+# === Phase 2: Callback Tests ===
+
+
+def test_callback_basic():
+    """Callback is invoked instead of returning default response."""
+
+    def always_virus(data: bytes, **kwargs) -> IcapResponse:
+        return IcapResponseBuilder().virus("Callback.Virus").build()
+
+    client = MockIcapClient()
+    client.on_respmod(callback=always_virus)
+
+    response = client.scan_bytes(b"any content")
+    assert not response.is_no_modification
+    assert response.headers["X-Virus-ID"] == "Callback.Virus"
+
+
+def test_callback_receives_kwargs():
+    """Callback receives data, service, and filename from the call."""
+    received_kwargs = {}
+
+    def capture_kwargs(data: bytes, **kwargs) -> IcapResponse:
+        received_kwargs.update(kwargs)
+        received_kwargs["data"] = data
+        return IcapResponseBuilder().clean().build()
+
+    client = MockIcapClient()
+    client.on_respmod(callback=capture_kwargs)
+
+    client.scan_bytes(b"test content", service="custom_service", filename="test.pdf")
+
+    assert received_kwargs["data"] == b"test content"
+    assert received_kwargs["service"] == "custom_service"
+    assert received_kwargs["filename"] == "test.pdf"
+
+
+def test_callback_dynamic_response():
+    """Callback can return different responses based on content."""
+
+    def eicar_detector(data: bytes, **kwargs) -> IcapResponse:
+        if b"EICAR" in data:
+            return IcapResponseBuilder().virus("EICAR-Test").build()
+        return IcapResponseBuilder().clean().build()
+
+    client = MockIcapClient()
+    client.on_respmod(callback=eicar_detector)
+
+    # Safe content
+    response1 = client.scan_bytes(b"safe content")
+    assert response1.is_no_modification
+
+    # Content with EICAR
+    response2 = client.scan_bytes(b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE")
+    assert not response2.is_no_modification
+    assert response2.headers["X-Virus-ID"] == "EICAR-Test"
+
+    # Safe again
+    response3 = client.scan_bytes(b"another safe file")
+    assert response3.is_no_modification
+
+
+def test_callback_overrides_queued_responses():
+    """Callback takes precedence over queued responses."""
+
+    def always_clean(data: bytes, **kwargs) -> IcapResponse:
+        return IcapResponseBuilder().clean().build()
+
+    client = MockIcapClient()
+    # First configure a response queue
+    client.on_respmod(
+        IcapResponseBuilder().virus().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+    # Then set callback (should clear queue)
+    client.on_respmod(callback=always_clean)
+
+    # All calls should use callback (clean), not the queued virus responses
+    response1 = client.scan_bytes(b"file1")
+    assert response1.is_no_modification
+    response2 = client.scan_bytes(b"file2")
+    assert response2.is_no_modification
+    response3 = client.scan_bytes(b"file3")
+    assert response3.is_no_modification
+
+
+def test_callback_cleared_by_reset_responses():
+    """reset_responses() clears callback configuration."""
+
+    def always_virus(data: bytes, **kwargs) -> IcapResponse:
+        return IcapResponseBuilder().virus().build()
+
+    client = MockIcapClient()
+    client.on_respmod(callback=always_virus)
+
+    response1 = client.scan_bytes(b"before reset")
+    assert not response1.is_no_modification
+
+    client.reset_responses()
+
+    # After reset, should use default (clean)
+    response2 = client.scan_bytes(b"after reset")
+    assert response2.is_no_modification
+
+
+def test_callback_cleared_by_new_response_config():
+    """Setting a new response clears the callback."""
+
+    def always_virus(data: bytes, **kwargs) -> IcapResponse:
+        return IcapResponseBuilder().virus().build()
+
+    client = MockIcapClient()
+    client.on_respmod(callback=always_virus)
+
+    response1 = client.scan_bytes(b"with callback")
+    assert not response1.is_no_modification
+
+    # Set a new static response
+    client.on_respmod(IcapResponseBuilder().clean().build())
+
+    response2 = client.scan_bytes(b"after static config")
+    assert response2.is_no_modification
+
+
+def test_callback_works_with_scan_file(tmp_path):
+    """Callback works with scan_file method."""
+
+    def file_size_detector(data: bytes, **kwargs) -> IcapResponse:
+        if len(data) > 100:
+            return IcapResponseBuilder().virus("LargeFile").build()
+        return IcapResponseBuilder().clean().build()
+
+    client = MockIcapClient()
+    client.on_respmod(callback=file_size_detector)
+
+    # Small file
+    small_file = tmp_path / "small.txt"
+    small_file.write_bytes(b"x" * 50)
+    response1 = client.scan_file(small_file)
+    assert response1.is_no_modification
+
+    # Large file
+    large_file = tmp_path / "large.txt"
+    large_file.write_bytes(b"x" * 200)
+    response2 = client.scan_file(large_file)
+    assert not response2.is_no_modification
+
+
+def test_callback_works_with_scan_stream():
+    """Callback works with scan_stream method."""
+    call_count = [0]
+
+    def counting_callback(data: bytes, **kwargs) -> IcapResponse:
+        call_count[0] += 1
+        return IcapResponseBuilder().clean().build()
+
+    client = MockIcapClient()
+    client.on_respmod(callback=counting_callback)
+
+    stream = io.BytesIO(b"stream content")
+    client.scan_stream(stream, filename="stream.bin")
+
+    assert call_count[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_async_callback_sync():
+    """Async client works with sync callback."""
+
+    def sync_callback(data: bytes, **kwargs) -> IcapResponse:
+        if b"virus" in data:
+            return IcapResponseBuilder().virus().build()
+        return IcapResponseBuilder().clean().build()
+
+    client = MockAsyncIcapClient()
+    client.on_respmod(callback=sync_callback)
+
+    response1 = await client.scan_bytes(b"safe content")
+    assert response1.is_no_modification
+
+    response2 = await client.scan_bytes(b"this has virus in it")
+    assert not response2.is_no_modification
+
+
+@pytest.mark.asyncio
+async def test_async_callback_async():
+    """Async client works with async callback."""
+
+    async def async_callback(data: bytes, **kwargs) -> IcapResponse:
+        # Simulates async operation (could be async I/O in real code)
+        if b"malware" in data:
+            return IcapResponseBuilder().virus("Async.Malware").build()
+        return IcapResponseBuilder().clean().build()
+
+    client = MockAsyncIcapClient()
+    client.on_respmod(callback=async_callback)
+
+    response1 = await client.scan_bytes(b"safe content")
+    assert response1.is_no_modification
+
+    response2 = await client.scan_bytes(b"this is malware!")
+    assert not response2.is_no_modification
+    assert response2.headers["X-Virus-ID"] == "Async.Malware"
+
+
+@pytest.mark.asyncio
+async def test_async_callback_receives_kwargs():
+    """Async callback receives proper kwargs."""
+    received = {}
+
+    async def capture_async(data: bytes, **kwargs) -> IcapResponse:
+        received["data"] = data
+        received["service"] = kwargs.get("service")
+        received["filename"] = kwargs.get("filename")
+        return IcapResponseBuilder().clean().build()
+
+    client = MockAsyncIcapClient()
+    client.on_respmod(callback=capture_async)
+
+    await client.scan_bytes(b"async data", service="async_scan", filename="async.txt")
+
+    assert received["data"] == b"async data"
+    assert received["service"] == "async_scan"
+    assert received["filename"] == "async.txt"
