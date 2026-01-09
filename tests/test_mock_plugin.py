@@ -716,7 +716,9 @@ def test_callback_dynamic_response():
     assert response1.is_no_modification
 
     # Content with EICAR
-    response2 = client.scan_bytes(b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE")
+    response2 = client.scan_bytes(
+        b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE"
+    )
     assert not response2.is_no_modification
     assert response2.headers["X-Virus-ID"] == "EICAR-Test"
 
@@ -887,3 +889,278 @@ async def test_async_callback_receives_kwargs():
     assert received["data"] == b"async data"
     assert received["service"] == "async_scan"
     assert received["filename"] == "async.txt"
+
+
+# === Phase 3: Content Matcher Tests ===
+
+
+def test_matcher_filename_exact():
+    """when(filename=) matches exact filename."""
+    client = MockIcapClient()
+    client.when(filename="malware.exe").respond(IcapResponseBuilder().virus("Exact.Match").build())
+
+    # Exact match should trigger virus response
+    response1 = client.scan_bytes(b"content", filename="malware.exe")
+    assert not response1.is_no_modification
+    assert response1.headers["X-Virus-ID"] == "Exact.Match"
+
+    # Different filename should fall through to default
+    response2 = client.scan_bytes(b"content", filename="safe.txt")
+    assert response2.is_no_modification
+
+    # No filename should fall through to default
+    response3 = client.scan_bytes(b"content")
+    assert response3.is_no_modification
+
+
+def test_matcher_filename_pattern():
+    """when(filename_matches=) matches regex pattern."""
+    client = MockIcapClient()
+    client.when(filename_matches=r".*\.exe$").respond(
+        IcapResponseBuilder().virus("Policy.BlockedExecutable").build()
+    )
+
+    # .exe files match
+    response1 = client.scan_bytes(b"content", filename="program.exe")
+    assert not response1.is_no_modification
+
+    response2 = client.scan_bytes(b"content", filename="installer.EXE")
+    assert response2.is_no_modification  # Case-sensitive by default
+
+    # Non-.exe files don't match
+    response3 = client.scan_bytes(b"content", filename="document.pdf")
+    assert response3.is_no_modification
+
+
+def test_matcher_data_contains():
+    """when(data_contains=) matches content containing bytes."""
+    client = MockIcapClient()
+    client.when(data_contains=b"EICAR").respond(IcapResponseBuilder().virus("EICAR-Test").build())
+
+    # Content with EICAR triggers
+    response1 = client.scan_bytes(b"X5O!P%@AP...EICAR...test")
+    assert not response1.is_no_modification
+
+    # Content without EICAR is clean
+    response2 = client.scan_bytes(b"safe content here")
+    assert response2.is_no_modification
+
+
+def test_matcher_service():
+    """when(service=) matches specific service name."""
+    client = MockIcapClient()
+    client.when(service="avscan").respond(IcapResponseBuilder().virus("Service.Match").build())
+
+    # Default service is "avscan"
+    response1 = client.scan_bytes(b"content")
+    assert not response1.is_no_modification
+
+    # Different service doesn't match
+    response2 = client.scan_bytes(b"content", service="dlp")
+    assert response2.is_no_modification
+
+
+def test_matcher_combined_criteria():
+    """when() with multiple criteria uses AND logic."""
+    client = MockIcapClient()
+    client.when(
+        service="avscan",
+        filename_matches=r".*\.docx$",
+        data_contains=b"PK\x03\x04",  # ZIP header
+    ).respond(IcapResponseBuilder().virus("Macro.Suspicious").build())
+
+    # All criteria match
+    response1 = client.scan_bytes(b"PK\x03\x04content", service="avscan", filename="doc.docx")
+    assert not response1.is_no_modification
+
+    # Missing data_contains
+    response2 = client.scan_bytes(b"plain text", service="avscan", filename="doc.docx")
+    assert response2.is_no_modification
+
+    # Wrong service
+    response3 = client.scan_bytes(b"PK\x03\x04content", service="dlp", filename="doc.docx")
+    assert response3.is_no_modification
+
+
+def test_matcher_chaining():
+    """Multiple matchers can be chained with method chaining."""
+    client = MockIcapClient()
+    client.when(filename="virus.exe").respond(
+        IcapResponseBuilder().virus("Known.Virus").build()
+    ).when(filename="suspicious.bat").respond(
+        IcapResponseBuilder().virus("Suspicious.Script").build()
+    )
+
+    response1 = client.scan_bytes(b"content", filename="virus.exe")
+    assert response1.headers["X-Virus-ID"] == "Known.Virus"
+
+    response2 = client.scan_bytes(b"content", filename="suspicious.bat")
+    assert response2.headers["X-Virus-ID"] == "Suspicious.Script"
+
+    response3 = client.scan_bytes(b"content", filename="safe.txt")
+    assert response3.is_no_modification
+
+
+def test_matcher_first_match_wins():
+    """First matching matcher wins when multiple could match."""
+    client = MockIcapClient()
+    # More specific matcher first
+    client.when(filename="specific.exe").respond(
+        IcapResponseBuilder().virus("Specific.Match").build()
+    )
+    # General matcher second
+    client.when(filename_matches=r".*\.exe$").respond(
+        IcapResponseBuilder().virus("General.Match").build()
+    )
+
+    # Specific match takes precedence
+    response1 = client.scan_bytes(b"content", filename="specific.exe")
+    assert response1.headers["X-Virus-ID"] == "Specific.Match"
+
+    # General match for other .exe files
+    response2 = client.scan_bytes(b"content", filename="other.exe")
+    assert response2.headers["X-Virus-ID"] == "General.Match"
+
+
+def test_matcher_times_limit():
+    """times= parameter limits how many times matcher can be used."""
+    client = MockIcapClient()
+    client.when(data_contains=b"bad").respond(
+        IcapResponseBuilder().virus("Limited").build(),
+        times=2,
+    )
+
+    # First two matches work
+    response1 = client.scan_bytes(b"bad content")
+    assert not response1.is_no_modification
+
+    response2 = client.scan_bytes(b"more bad stuff")
+    assert not response2.is_no_modification
+
+    # Third time falls through (matcher exhausted)
+    response3 = client.scan_bytes(b"bad again")
+    assert response3.is_no_modification
+
+
+def test_matcher_priority_over_callback():
+    """Matchers take priority over callbacks."""
+
+    def always_clean(data: bytes, **kwargs) -> IcapResponse:
+        return IcapResponseBuilder().clean().build()
+
+    client = MockIcapClient()
+    client.on_respmod(callback=always_clean)
+    client.when(data_contains=b"virus").respond(
+        IcapResponseBuilder().virus("Matcher.Priority").build()
+    )
+
+    # Content with "virus" uses matcher, not callback
+    response1 = client.scan_bytes(b"this has virus in it")
+    assert not response1.is_no_modification
+
+    # Content without "virus" falls through to callback
+    response2 = client.scan_bytes(b"safe content")
+    assert response2.is_no_modification
+
+
+def test_matcher_priority_over_queue():
+    """Matchers take priority over response queue."""
+    client = MockIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().virus("Queue.Virus1").build(),
+        IcapResponseBuilder().virus("Queue.Virus2").build(),
+    )
+    client.when(filename="safe.txt").respond(IcapResponseBuilder().clean().build())
+
+    # Matcher matches - clean response, queue not consumed
+    response1 = client.scan_bytes(b"content", filename="safe.txt")
+    assert response1.is_no_modification
+
+    # No matcher - queue is consumed
+    response2 = client.scan_bytes(b"content", filename="other.txt")
+    assert response2.headers["X-Virus-ID"] == "Queue.Virus1"
+
+    # Matcher again
+    response3 = client.scan_bytes(b"content", filename="safe.txt")
+    assert response3.is_no_modification
+
+    # Queue continues
+    response4 = client.scan_bytes(b"content", filename="other.txt")
+    assert response4.headers["X-Virus-ID"] == "Queue.Virus2"
+
+
+def test_matcher_cleared_by_reset_responses():
+    """reset_responses() clears all matchers."""
+    client = MockIcapClient()
+    client.when(filename="malware.exe").respond(IcapResponseBuilder().virus().build())
+
+    response1 = client.scan_bytes(b"content", filename="malware.exe")
+    assert not response1.is_no_modification
+
+    client.reset_responses()
+
+    # Matcher cleared, falls through to default
+    response2 = client.scan_bytes(b"content", filename="malware.exe")
+    assert response2.is_no_modification
+
+
+@pytest.mark.asyncio
+async def test_async_matcher_filename():
+    """Async client supports when() matchers."""
+    client = MockAsyncIcapClient()
+    client.when(filename="malware.exe").respond(
+        IcapResponseBuilder().virus("Async.Matcher").build()
+    )
+
+    response1 = await client.scan_bytes(b"content", filename="malware.exe")
+    assert not response1.is_no_modification
+
+    response2 = await client.scan_bytes(b"content", filename="safe.txt")
+    assert response2.is_no_modification
+
+
+@pytest.mark.asyncio
+async def test_async_matcher_data_contains():
+    """Async client when(data_contains=) works."""
+    client = MockAsyncIcapClient()
+    client.when(data_contains=b"EICAR").respond(IcapResponseBuilder().virus("Async.EICAR").build())
+
+    response1 = await client.scan_bytes(b"content with EICAR signature")
+    assert not response1.is_no_modification
+
+    response2 = await client.scan_bytes(b"clean content")
+    assert response2.is_no_modification
+
+
+@pytest.mark.asyncio
+async def test_async_matcher_priority_over_callback():
+    """Async matchers take priority over async callbacks."""
+
+    async def async_callback(data: bytes, **kwargs) -> IcapResponse:
+        return IcapResponseBuilder().clean().build()
+
+    client = MockAsyncIcapClient()
+    client.on_respmod(callback=async_callback)
+    client.when(filename="virus.exe").respond(IcapResponseBuilder().virus().build())
+
+    response1 = await client.scan_bytes(b"content", filename="virus.exe")
+    assert not response1.is_no_modification
+
+    response2 = await client.scan_bytes(b"content", filename="safe.txt")
+    assert response2.is_no_modification
+
+
+@pytest.mark.asyncio
+async def test_async_matcher_times_limit():
+    """Async client respects times= limit on matchers."""
+    client = MockAsyncIcapClient()
+    client.when(data_contains=b"bad").respond(
+        IcapResponseBuilder().virus().build(),
+        times=1,
+    )
+
+    response1 = await client.scan_bytes(b"bad content")
+    assert not response1.is_no_modification
+
+    response2 = await client.scan_bytes(b"bad again")
+    assert response2.is_no_modification  # Matcher exhausted

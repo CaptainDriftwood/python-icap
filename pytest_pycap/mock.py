@@ -30,6 +30,7 @@ Example:
 from __future__ import annotations
 
 import inspect
+import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -121,6 +122,229 @@ class AsyncResponseCallback(Protocol):
         filename: str | None = None,
         **kwargs: Any,
     ) -> IcapResponse: ...
+
+
+@dataclass
+class ResponseMatcher:
+    """
+    A rule that matches scan calls and returns a specific response.
+
+    ResponseMatcher provides declarative conditional responses based on
+    service name, filename, or content. Matchers are checked in registration
+    order; the first match wins.
+
+    Attributes:
+        service: Exact service name to match (e.g., "avscan").
+        filename: Exact filename to match (e.g., "malware.exe").
+        filename_pattern: Compiled regex pattern to match against filename.
+        data_contains: Bytes that must be present in the scanned content.
+        response: The IcapResponse to return when this matcher matches.
+        times: Maximum number of times this matcher can be used (None = unlimited).
+
+    Matching Logic:
+        All specified criteria must match (AND logic). Unspecified criteria
+        (None values) are ignored. For example:
+
+        - `service="avscan"` matches any call with service="avscan"
+        - `service="avscan", filename="test.exe"` requires both to match
+        - `data_contains=b"EICAR"` matches any content containing those bytes
+
+    Example:
+        >>> # Create a matcher that triggers on .exe files
+        >>> matcher = ResponseMatcher(
+        ...     filename_pattern=re.compile(r".*\\.exe$"),
+        ...     response=IcapResponseBuilder().virus("Blocked.Exe").build(),
+        ... )
+        >>> matcher.matches(service="avscan", filename="test.exe", data=b"content")
+        True
+        >>> matcher.matches(service="avscan", filename="test.pdf", data=b"content")
+        False
+
+    See Also:
+        MatcherBuilder: Fluent API for creating matchers via when().
+        MockIcapClient.when: Register matchers on the mock client.
+    """
+
+    service: str | None = None
+    filename: str | None = None
+    filename_pattern: re.Pattern[str] | None = None
+    data_contains: bytes | None = None
+    response: IcapResponse | None = None
+    times: int | None = None
+    _match_count: int = field(default=0, repr=False)
+
+    def matches(self, **kwargs: Any) -> bool:
+        """
+        Check if this matcher applies to the given call kwargs.
+
+        All specified criteria must match (AND logic). Criteria that are None
+        are not checked.
+
+        Args:
+            **kwargs: Call arguments including data, service, filename, etc.
+
+        Returns:
+            True if all specified criteria match, False otherwise.
+        """
+        # Check service match
+        if self.service is not None:
+            if kwargs.get("service") != self.service:
+                return False
+
+        # Check exact filename match
+        if self.filename is not None:
+            if kwargs.get("filename") != self.filename:
+                return False
+
+        # Check filename pattern match
+        if self.filename_pattern is not None:
+            filename = kwargs.get("filename")
+            if filename is None or not self.filename_pattern.match(filename):
+                return False
+
+        # Check data contains
+        if self.data_contains is not None:
+            data = kwargs.get("data", b"")
+            if self.data_contains not in data:
+                return False
+
+        return True
+
+    def consume(self) -> IcapResponse:
+        """
+        Return the response and increment the match count.
+
+        Returns:
+            The configured IcapResponse.
+
+        Raises:
+            ValueError: If no response is configured.
+        """
+        if self.response is None:
+            raise ValueError("No response configured for this matcher")
+        self._match_count += 1
+        return self.response
+
+    def is_exhausted(self) -> bool:
+        """
+        Check if this matcher has reached its usage limit.
+
+        Returns:
+            True if times limit is set and has been reached, False otherwise.
+        """
+        if self.times is None:
+            return False
+        return self._match_count >= self.times
+
+
+class MatcherBuilder:
+    """
+    Fluent builder for creating and registering ResponseMatchers.
+
+    MatcherBuilder provides a readable, chainable API for configuring
+    conditional responses. Created via MockIcapClient.when(), it collects
+    match criteria and registers the matcher when respond() is called.
+
+    Example - Simple filename matching:
+        >>> client = MockIcapClient()
+        >>> client.when(filename="malware.exe").respond(
+        ...     IcapResponseBuilder().virus("Known.Malware").build()
+        ... )
+
+    Example - Pattern matching with regex:
+        >>> client.when(filename_matches=r".*\\.exe$").respond(
+        ...     IcapResponseBuilder().virus("Policy.BlockedExecutable").build()
+        ... )
+
+    Example - Content-based matching:
+        >>> client.when(data_contains=b"EICAR").respond(
+        ...     IcapResponseBuilder().virus("EICAR-Test").build()
+        ... )
+
+    Example - Combined criteria (AND logic):
+        >>> client.when(
+        ...     service="avscan",
+        ...     filename_matches=r".*\\.docx$",
+        ...     data_contains=b"PK\\x03\\x04",  # ZIP header (Office files are ZIPs)
+        ... ).respond(
+        ...     IcapResponseBuilder().virus("Macro.Suspicious").build()
+        ... )
+
+    Example - Limited use matcher:
+        >>> client.when(data_contains=b"bad").respond(
+        ...     IcapResponseBuilder().virus().build(),
+        ...     times=2,  # Only match first 2 times
+        ... )
+
+    See Also:
+        MockIcapClient.when: Entry point for creating matchers.
+        ResponseMatcher: The underlying matcher dataclass.
+    """
+
+    def __init__(
+        self,
+        client: MockIcapClient,
+        *,
+        service: str | None = None,
+        filename: str | None = None,
+        filename_matches: str | None = None,
+        data_contains: bytes | None = None,
+    ) -> None:
+        """
+        Initialize the builder with match criteria.
+
+        This constructor is not called directly; use MockIcapClient.when() instead.
+
+        Args:
+            client: The mock client to register the matcher with.
+            service: Exact service name to match.
+            filename: Exact filename to match.
+            filename_matches: Regex pattern string to match against filename.
+            data_contains: Bytes that must be present in scanned content.
+        """
+        self._client = client
+        self._service = service
+        self._filename = filename
+        self._filename_pattern = re.compile(filename_matches) if filename_matches else None
+        self._data_contains = data_contains
+
+    def respond(
+        self,
+        response: IcapResponse,
+        *,
+        times: int | None = None,
+    ) -> MockIcapClient:
+        """
+        Register this matcher with the specified response.
+
+        Creates a ResponseMatcher from the configured criteria and registers
+        it with the client. Matchers are checked in registration order.
+
+        Args:
+            response: The IcapResponse to return when this matcher matches.
+            times: Maximum number of times this matcher can be used.
+                   None means unlimited (default).
+
+        Returns:
+            The MockIcapClient for method chaining.
+
+        Example:
+            >>> client.when(filename="test.exe").respond(
+            ...     IcapResponseBuilder().virus().build()
+            ... ).when(filename="safe.txt").respond(
+            ...     IcapResponseBuilder().clean().build()
+            ... )
+        """
+        matcher = ResponseMatcher(
+            service=self._service,
+            filename=self._filename,
+            filename_pattern=self._filename_pattern,
+            data_contains=self._data_contains,
+            response=response,
+            times=times,
+        )
+        self._client._matchers.append(matcher)
+        return self._client
 
 
 class MockResponseExhaustedError(Exception):
@@ -322,6 +546,9 @@ class MockIcapClient:
             "respmod": None,
             "reqmod": None,
         }
+
+        # Content matchers for declarative conditional responses (Phase 3)
+        self._matchers: list[ResponseMatcher] = []
 
     # === Configuration API ===
 
@@ -623,6 +850,85 @@ class MockIcapClient:
         for method in self._callbacks:
             self._callbacks[method] = None
 
+        # Clear matchers
+        self._matchers.clear()
+
+    def when(
+        self,
+        *,
+        service: str | None = None,
+        filename: str | None = None,
+        filename_matches: str | None = None,
+        data_contains: bytes | None = None,
+    ) -> MatcherBuilder:
+        """
+        Create a conditional response matcher.
+
+        Returns a MatcherBuilder that collects match criteria and registers
+        the matcher when respond() is called. Matchers are checked in registration
+        order; the first match wins. Matchers take highest priority in response
+        resolution (before callbacks, queues, and defaults).
+
+        Args:
+            service: Exact service name to match (e.g., "avscan").
+            filename: Exact filename to match (e.g., "malware.exe").
+            filename_matches: Regex pattern string to match against filename.
+            data_contains: Bytes that must be present in scanned content.
+
+        Returns:
+            MatcherBuilder for configuring the response.
+
+        Example - Filename matching:
+            >>> client = MockIcapClient()
+            >>> client.when(filename="malware.exe").respond(
+            ...     IcapResponseBuilder().virus("Known.Malware").build()
+            ... )
+            >>> client.scan_bytes(b"content", filename="malware.exe").is_no_modification
+            False  # virus detected
+            >>> client.scan_bytes(b"content", filename="safe.txt").is_no_modification
+            True  # falls through to default
+
+        Example - Pattern matching:
+            >>> client.when(filename_matches=r".*\\.exe$").respond(
+            ...     IcapResponseBuilder().virus("Policy.BlockedExecutable").build()
+            ... )
+
+        Example - Content matching:
+            >>> client.when(data_contains=b"EICAR").respond(
+            ...     IcapResponseBuilder().virus("EICAR-Test").build()
+            ... )
+
+        Example - Combined criteria:
+            >>> client.when(service="avscan", data_contains=b"malicious").respond(
+            ...     IcapResponseBuilder().virus().build()
+            ... )
+
+        Example - Multiple matchers with chaining:
+            >>> client.when(filename="virus.exe").respond(
+            ...     IcapResponseBuilder().virus().build()
+            ... ).when(filename="clean.txt").respond(
+            ...     IcapResponseBuilder().clean().build()
+            ... )
+
+        Example - Limited use matcher:
+            >>> client.when(data_contains=b"bad").respond(
+            ...     IcapResponseBuilder().virus().build(),
+            ...     times=2,  # Only match first 2 times
+            ... )
+
+        See Also:
+            MatcherBuilder: Builder returned by this method.
+            ResponseMatcher: The underlying matcher dataclass.
+            reset_responses: Clears all matchers along with other configurations.
+        """
+        return MatcherBuilder(
+            self,
+            service=service,
+            filename=filename,
+            filename_matches=filename_matches,
+            data_contains=data_contains,
+        )
+
     # === Assertion API ===
 
     @property
@@ -804,16 +1110,24 @@ class MockIcapClient:
         Get the next response for the given method.
 
         Resolution order:
-        1. If callback is set → invoke callback with last call's kwargs
-        2. If queue has items → pop and return/raise
-        3. If queue is empty AND queue_active is True → raise MockResponseExhaustedError
-        4. Otherwise → use default response
+        1. If a matcher matches the call kwargs → return matcher's response
+        2. If callback is set → invoke callback with last call's kwargs
+        3. If queue has items → pop and return/raise
+        4. If queue is empty AND queue_active is True → raise MockResponseExhaustedError
+        5. Otherwise → use default response
         """
-        # Check for callback first (highest priority)
+        # Get kwargs from the last recorded call for matching
+        last_call = self._calls[-1] if self._calls else None
+        call_kwargs = last_call.kwargs if last_call is not None else {}
+
+        # Check matchers first (highest priority)
+        for matcher in self._matchers:
+            if not matcher.is_exhausted() and matcher.matches(**call_kwargs):
+                return matcher.consume()
+
+        # Check for callback
         callback = self._callbacks.get(method)
         if callback is not None:
-            # Get kwargs from the last recorded call
-            last_call = self._calls[-1] if self._calls else None
             if last_call is not None:
                 return callback(**last_call.kwargs)
             # Fallback if no call recorded (shouldn't happen in normal use)
@@ -985,15 +1299,26 @@ class MockAsyncIcapClient(MockIcapClient):
         """
         Get the next response for the given method (async version).
 
-        Supports both sync and async callbacks. Sync callbacks are called directly,
-        async callbacks are awaited.
+        Resolution order:
+        1. If a matcher matches the call kwargs → return matcher's response
+        2. If callback is set (sync or async) → invoke callback
+        3. Fall back to sync implementation (queue → default)
         """
-        # Check for callback first (highest priority)
+        # Get kwargs from the last recorded call for matching
+        last_call = self._calls[-1] if self._calls else None
+        call_kwargs = last_call.kwargs if last_call is not None else {}
+
+        # Check matchers first (highest priority)
+        for matcher in self._matchers:
+            if not matcher.is_exhausted() and matcher.matches(**call_kwargs):
+                return matcher.consume()
+
+        # Check for callback
         callback = self._callbacks.get(method)
         if callback is not None:
-            # Get kwargs from the last recorded call
-            last_call = self._calls[-1] if self._calls else None
-            kwargs = last_call.kwargs if last_call is not None else {"data": b"", "service": "avscan", "filename": None}
+            kwargs = (
+                call_kwargs if call_kwargs else {"data": b"", "service": "avscan", "filename": None}
+            )
 
             # Check if callback is async and await if needed
             if inspect.iscoroutinefunction(callback):
@@ -1001,7 +1326,7 @@ class MockAsyncIcapClient(MockIcapClient):
             else:
                 return callback(**kwargs)
 
-        # Fall back to sync implementation for non-callback cases
+        # Fall back to sync implementation for queue/default cases
         return super()._get_method_response(method)
 
     async def connect(self) -> None:  # type: ignore[override]

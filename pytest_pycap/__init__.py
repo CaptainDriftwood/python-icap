@@ -99,11 +99,13 @@ from pycap.exception import IcapConnectionError, IcapTimeoutError
 from .builder import IcapResponseBuilder
 from .mock import (
     AsyncResponseCallback,
+    MatcherBuilder,
     MockAsyncIcapClient,
     MockCall,
     MockIcapClient,
     MockResponseExhaustedError,
     ResponseCallback,
+    ResponseMatcher,
 )
 
 __all__ = [
@@ -139,6 +141,9 @@ __all__ = [
     # Callback protocols
     "ResponseCallback",
     "AsyncResponseCallback",
+    # Content matchers
+    "ResponseMatcher",
+    "MatcherBuilder",
 ]
 
 
