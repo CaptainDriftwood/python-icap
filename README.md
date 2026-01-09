@@ -56,10 +56,13 @@ A pure Python ICAP (Internet Content Adaptation Protocol) client with no externa
 
 ## Overview
 
-Pycap is a Python library for communicating with ICAP servers. It supports the standard ICAP methods:
-- **OPTIONS** - Query server capabilities
-- **REQMOD** - Request modification mode (scan/modify HTTP requests)
-- **RESPMOD** - Response modification mode (scan/modify HTTP responses)
+Pycap provides a clean, Pythonic API for integrating ICAP into your applications:
+
+- **Sync and async clients** - Both `IcapClient` and `AsyncIcapClient` with full API parity
+- **High-level file scanning** - Simple `scan_file()`, `scan_bytes()`, and `scan_stream()` methods
+- **SSL/TLS support** - Secure connections with custom certificates and mutual TLS
+- **Pytest plugin** - Mock clients and fixtures for testing without a live server
+- **Zero dependencies** - Pure Python stdlib implementation
 
 ## What is ICAP?
 
