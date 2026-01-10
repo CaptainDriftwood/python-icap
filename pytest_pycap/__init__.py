@@ -155,7 +155,7 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
-        "icap_mock(response, virus_name, raises, options, respmod, reqmod): "
+        "icap_mock(response, virus_name, raises, options, respmod, reqmod, strict): "
         "configure mock ICAP client",
     )
     config.addinivalue_line(
@@ -442,7 +442,7 @@ def _resolve_marker_response(marker) -> IcapResponse:
 
 
 @pytest.fixture
-def icap_mock(request) -> MockIcapClient:
+def icap_mock(request) -> Generator[MockIcapClient, None, None]:
     """
     Configurable mock via markers.
 
@@ -453,6 +453,7 @@ def icap_mock(request) -> MockIcapClient:
         - virus_name: str (when response="virus")
         - raises: Exception class or instance
         - options/respmod/reqmod: dict for per-method config
+        - strict: bool - If True, assert all responses were used at teardown
 
     2. **@pytest.mark.icap_response** (stackable) - Queue responses:
         Stack multiple markers to define a sequence of responses consumed in order.
@@ -466,6 +467,13 @@ def icap_mock(request) -> MockIcapClient:
         @pytest.mark.icap_mock(response="virus", virus_name="Trojan.Gen")
         def test_virus(icap_mock):
             ...
+
+    Examples - Strict mode (fails if configured responses not used):
+        @pytest.mark.icap_mock(strict=True)
+        def test_strict(icap_mock):
+            icap_mock.when(data_contains=b"virus").respond(virus_response)
+            icap_mock.scan_bytes(b"virus content")  # matcher triggered - OK
+            # Test teardown checks all matchers/queues were consumed
 
     Examples - Stacked icap_response markers:
         @pytest.mark.icap_response("clean")
@@ -486,7 +494,11 @@ def icap_mock(request) -> MockIcapClient:
             response = icap_mock.scan_bytes(b"file")
             assert response.status_code == 503
     """
-    client = MockIcapClient()
+    # Check for strict mode from marker
+    marker = request.node.get_closest_marker("icap_mock")
+    strict = marker.kwargs.get("strict", False) if marker else False
+
+    client = MockIcapClient(strict=strict)
 
     # Collect stacked @pytest.mark.icap_response markers
     # iter_markers returns closest (innermost) first, but decorators are applied
@@ -497,10 +509,9 @@ def icap_mock(request) -> MockIcapClient:
         client.on_respmod(*responses)
 
     # Also handle @pytest.mark.icap_mock configuration
-    marker = request.node.get_closest_marker("icap_mock")
-
     if marker is None:
-        return client
+        yield client
+        return
 
     # Handle simple response configuration
     response_type = marker.kwargs.get("response")
@@ -541,4 +552,8 @@ def icap_mock(request) -> MockIcapClient:
                 elif isinstance(resp, IcapResponse):
                     configure_method(resp)
 
-    return client
+    yield client
+
+    # Strict mode: assert all configured responses were used at teardown
+    if strict:
+        client.assert_all_responses_used()

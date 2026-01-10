@@ -664,6 +664,8 @@ class MockIcapClient:
         self,
         host: str = "mock-icap-server",
         port: int = 1344,
+        *,
+        strict: bool = False,
     ) -> None:
         """
         Initialize the mock ICAP client.
@@ -673,10 +675,14 @@ class MockIcapClient:
                   This value is stored but not used for actual connections.
             port: Mock server port (default: 1344).
                   This value is stored but not used for actual connections.
+            strict: If True, enables strict mode validation. Use
+                    assert_all_responses_used() to verify all configured
+                    responses were consumed. Default: False.
         """
         self._host = host
         self._port = port
         self._connected = False
+        self._strict = strict
         self._calls: list[MockCall] = []
 
         # Response queues for sequential responses (Phase 1)
@@ -689,6 +695,20 @@ class MockIcapClient:
         # Track whether queue mode is active for each method
         # When True and queue is empty, raises MockResponseExhaustedError
         self._queue_active: dict[str, bool] = {
+            "options": False,
+            "respmod": False,
+            "reqmod": False,
+        }
+
+        # Track initial queue sizes for strict mode validation (Phase 5)
+        self._initial_queue_sizes: dict[str, int] = {
+            "options": 0,
+            "respmod": 0,
+            "reqmod": 0,
+        }
+
+        # Track callback usage for strict mode validation (Phase 5)
+        self._callback_used: dict[str, bool] = {
             "options": False,
             "respmod": False,
             "reqmod": False,
@@ -764,15 +784,18 @@ class MockIcapClient:
         if raises is not None:
             self._response_queues["options"].clear()
             self._queue_active["options"] = False
+            self._initial_queue_sizes["options"] = 0
             self._options_response = raises
         elif len(responses) == 1:
             self._response_queues["options"].clear()
             self._queue_active["options"] = False
+            self._initial_queue_sizes["options"] = 0
             self._options_response = responses[0]
         elif len(responses) > 1:
             self._response_queues["options"].clear()
             self._response_queues["options"].extend(responses)
             self._queue_active["options"] = True
+            self._initial_queue_sizes["options"] = len(responses)
         return self
 
     def on_respmod(
@@ -847,17 +870,21 @@ class MockIcapClient:
             # Callback mode: clear other configurations
             self._response_queues["respmod"].clear()
             self._queue_active["respmod"] = False
+            self._initial_queue_sizes["respmod"] = 0
+            self._callback_used["respmod"] = False
             self._callbacks["respmod"] = callback
         elif raises is not None:
             # Clear queue and set default to exception
             self._response_queues["respmod"].clear()
             self._queue_active["respmod"] = False
+            self._initial_queue_sizes["respmod"] = 0
             self._callbacks["respmod"] = None
             self._respmod_response = raises
         elif len(responses) == 1:
             # Single response: set as default, clear queue
             self._response_queues["respmod"].clear()
             self._queue_active["respmod"] = False
+            self._initial_queue_sizes["respmod"] = 0
             self._callbacks["respmod"] = None
             self._respmod_response = responses[0]
         elif len(responses) > 1:
@@ -865,6 +892,7 @@ class MockIcapClient:
             self._response_queues["respmod"].clear()
             self._response_queues["respmod"].extend(responses)
             self._queue_active["respmod"] = True
+            self._initial_queue_sizes["respmod"] = len(responses)
             self._callbacks["respmod"] = None
         return self
 
@@ -918,15 +946,18 @@ class MockIcapClient:
         if raises is not None:
             self._response_queues["reqmod"].clear()
             self._queue_active["reqmod"] = False
+            self._initial_queue_sizes["reqmod"] = 0
             self._reqmod_response = raises
         elif len(responses) == 1:
             self._response_queues["reqmod"].clear()
             self._queue_active["reqmod"] = False
+            self._initial_queue_sizes["reqmod"] = 0
             self._reqmod_response = responses[0]
         elif len(responses) > 1:
             self._response_queues["reqmod"].clear()
             self._response_queues["reqmod"].extend(responses)
             self._queue_active["reqmod"] = True
+            self._initial_queue_sizes["reqmod"] = len(responses)
         return self
 
     def on_any(
@@ -1520,6 +1551,95 @@ class MockIcapClient:
                     return
         raise AssertionError(f"No scan was made with filename '{filename}'")
 
+    def assert_all_responses_used(self) -> None:
+        """
+        Assert that all configured responses were consumed (strict mode validation).
+
+        This method verifies that:
+        1. All queued responses were consumed (queue is empty)
+        2. All configured callbacks were invoked at least once
+        3. All registered matchers were triggered at least once
+
+        This is useful for ensuring that test setup matches test behavior -
+        if you configure specific responses, they should all be used.
+
+        Raises:
+            AssertionError: If any configured responses, callbacks, or matchers
+                were not used during the test.
+
+        Example - All queued responses consumed:
+            >>> client = MockIcapClient(strict=True)
+            >>> client.on_respmod(
+            ...     IcapResponseBuilder().clean().build(),
+            ...     IcapResponseBuilder().virus().build(),
+            ... )
+            >>> client.scan_bytes(b"file1")
+            >>> client.scan_bytes(b"file2")
+            >>> client.assert_all_responses_used()  # Passes
+
+        Example - Unused responses fail:
+            >>> client = MockIcapClient(strict=True)
+            >>> client.on_respmod(
+            ...     IcapResponseBuilder().clean().build(),
+            ...     IcapResponseBuilder().virus().build(),
+            ... )
+            >>> client.scan_bytes(b"file1")  # Only consume first response
+            >>> client.assert_all_responses_used()  # Raises AssertionError
+
+        Example - Unused callback fails:
+            >>> client = MockIcapClient(strict=True)
+            >>> client.on_respmod(callback=lambda **kwargs: IcapResponseBuilder().clean().build())
+            >>> client.assert_all_responses_used()  # Raises AssertionError (callback never called)
+
+        Example - Unused matcher fails:
+            >>> client = MockIcapClient(strict=True)
+            >>> client.when(filename="malware.exe").respond(
+            ...     IcapResponseBuilder().virus().build()
+            ... )
+            >>> client.scan_bytes(b"content", filename="safe.txt")  # Matcher not triggered
+            >>> client.assert_all_responses_used()  # Raises AssertionError
+
+        See Also:
+            strict: Constructor parameter to enable strict mode.
+        """
+        errors: list[str] = []
+
+        # Check for unconsumed queued responses
+        for method, queue in self._response_queues.items():
+            initial_size = self._initial_queue_sizes[method]
+            remaining = len(queue)
+            if remaining > 0:
+                consumed = initial_size - remaining
+                errors.append(
+                    f"{method}: {remaining} of {initial_size} queued responses not consumed "
+                    f"(consumed {consumed})"
+                )
+
+        # Check for unused callbacks
+        for method, callback in self._callbacks.items():
+            if callback is not None and not self._callback_used[method]:
+                errors.append(f"{method}: callback was configured but never invoked")
+
+        # Check for unused matchers
+        for i, matcher in enumerate(self._matchers):
+            if matcher._match_count == 0:
+                criteria = []
+                if matcher.service:
+                    criteria.append(f"service={matcher.service!r}")
+                if matcher.filename:
+                    criteria.append(f"filename={matcher.filename!r}")
+                if matcher.filename_pattern:
+                    criteria.append(f"filename_pattern={matcher.filename_pattern.pattern!r}")
+                if matcher.data_contains:
+                    criteria.append(f"data_contains={matcher.data_contains!r}")
+                criteria_str = ", ".join(criteria) if criteria else "no criteria"
+                errors.append(f"matcher[{i}] ({criteria_str}): never matched")
+
+        if errors:
+            raise AssertionError(
+                "Not all configured responses were used:\n  - " + "\n  - ".join(errors)
+            )
+
     # === IcapClient Interface ===
 
     @property
@@ -1606,6 +1726,7 @@ class MockIcapClient:
         # Check for callback
         callback = self._callbacks.get(method)
         if callback is not None:
+            self._callback_used[method] = True
             return callback(**call_kwargs), "callback"
 
         queue = self._response_queues[method]
@@ -1838,6 +1959,7 @@ class MockAsyncIcapClient(MockIcapClient):
         # Check for callback
         callback = self._callbacks.get(method)
         if callback is not None:
+            self._callback_used[method] = True
             # Check if callback is async and await if needed
             if inspect.iscoroutinefunction(callback):
                 result = await callback(**call_kwargs)

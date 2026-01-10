@@ -1795,3 +1795,249 @@ async def test_async_enhanced_assertions():
     client.assert_called_with("scan_bytes", filename="file.txt")
     client.assert_any_call("scan_bytes", data=b"test")
     client.assert_called_in_order(["options", "scan_bytes"])
+
+
+# === Phase 5: Strict Mode Tests ===
+
+
+def test_strict_parameter_defaults_to_false():
+    """Strict mode is disabled by default."""
+    client = MockIcapClient()
+    assert client._strict is False
+
+
+def test_strict_parameter_can_be_enabled():
+    """Strict mode can be enabled via constructor."""
+    client = MockIcapClient(strict=True)
+    assert client._strict is True
+
+
+def test_assert_all_responses_used_passes_with_no_config():
+    """assert_all_responses_used passes when using only defaults."""
+    client = MockIcapClient()
+    client.scan_bytes(b"test")
+    client.assert_all_responses_used()  # Should not raise
+
+
+def test_assert_all_responses_used_passes_when_queue_consumed():
+    """assert_all_responses_used passes when all queued responses are consumed."""
+    client = MockIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    client.scan_bytes(b"file1")
+    client.scan_bytes(b"file2")
+
+    client.assert_all_responses_used()  # Should not raise
+
+
+def test_assert_all_responses_used_fails_with_unconsumed_queue():
+    """assert_all_responses_used fails when queued responses remain."""
+    client = MockIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    client.scan_bytes(b"file1")  # Only consume first response
+
+    with pytest.raises(AssertionError) as exc_info:
+        client.assert_all_responses_used()
+
+    assert "respmod: 1 of 2 queued responses not consumed" in str(exc_info.value)
+
+
+def test_assert_all_responses_used_passes_when_callback_invoked():
+    """assert_all_responses_used passes when callback is invoked at least once."""
+    client = MockIcapClient()
+    client.on_respmod(callback=lambda **kwargs: IcapResponseBuilder().clean().build())
+
+    client.scan_bytes(b"test")
+
+    client.assert_all_responses_used()  # Should not raise
+
+
+def test_assert_all_responses_used_fails_with_unused_callback():
+    """assert_all_responses_used fails when callback is configured but never invoked."""
+    client = MockIcapClient()
+    client.on_respmod(callback=lambda **kwargs: IcapResponseBuilder().clean().build())
+
+    # No calls made
+
+    with pytest.raises(AssertionError) as exc_info:
+        client.assert_all_responses_used()
+
+    assert "respmod: callback was configured but never invoked" in str(exc_info.value)
+
+
+def test_assert_all_responses_used_passes_when_matcher_triggered():
+    """assert_all_responses_used passes when matcher is triggered at least once."""
+    client = MockIcapClient()
+    client.when(filename="virus.exe").respond(IcapResponseBuilder().virus().build())
+
+    client.scan_bytes(b"content", filename="virus.exe")
+
+    client.assert_all_responses_used()  # Should not raise
+
+
+def test_assert_all_responses_used_fails_with_unused_matcher():
+    """assert_all_responses_used fails when matcher is never triggered."""
+    client = MockIcapClient()
+    client.when(filename="virus.exe").respond(IcapResponseBuilder().virus().build())
+
+    client.scan_bytes(b"content", filename="safe.txt")  # Matcher not triggered
+
+    with pytest.raises(AssertionError) as exc_info:
+        client.assert_all_responses_used()
+
+    assert "matcher[0] (filename='virus.exe'): never matched" in str(exc_info.value)
+
+
+def test_assert_all_responses_used_fails_with_multiple_issues():
+    """assert_all_responses_used reports all unused configurations."""
+    client = MockIcapClient()
+
+    # Set up multiple unused configurations
+    client.on_options(
+        IcapResponseBuilder().options().build(),
+        IcapResponseBuilder().options().build(),
+    )
+    client.when(data_contains=b"EICAR").respond(IcapResponseBuilder().virus().build())
+
+    # Consume one options response, but not the other
+    client.options("avscan")
+
+    with pytest.raises(AssertionError) as exc_info:
+        client.assert_all_responses_used()
+
+    error_msg = str(exc_info.value)
+    assert "options: 1 of 2 queued responses not consumed" in error_msg
+    assert "matcher[0]" in error_msg
+
+
+def test_assert_all_responses_used_shows_matcher_criteria():
+    """assert_all_responses_used shows matcher criteria in error message."""
+    client = MockIcapClient()
+    client.when(service="avscan", filename_matches=r".*\.exe$").respond(
+        IcapResponseBuilder().virus().build()
+    )
+
+    with pytest.raises(AssertionError) as exc_info:
+        client.assert_all_responses_used()
+
+    error_msg = str(exc_info.value)
+    assert "service='avscan'" in error_msg
+    assert "filename_pattern=" in error_msg
+
+
+@pytest.mark.asyncio
+async def test_async_assert_all_responses_used_queue():
+    """Async client assert_all_responses_used works with queues."""
+    client = MockAsyncIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    await client.scan_bytes(b"file1")
+    await client.scan_bytes(b"file2")
+
+    client.assert_all_responses_used()  # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_async_assert_all_responses_used_fails_unconsumed():
+    """Async client assert_all_responses_used fails with unconsumed responses."""
+    client = MockAsyncIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    await client.scan_bytes(b"file1")  # Only consume first
+
+    with pytest.raises(AssertionError) as exc_info:
+        client.assert_all_responses_used()
+
+    assert "respmod: 1 of 2 queued responses not consumed" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_async_assert_all_responses_used_callback():
+    """Async client assert_all_responses_used tracks callback usage."""
+    client = MockAsyncIcapClient()
+
+    async def async_callback(**kwargs):
+        return IcapResponseBuilder().clean().build()
+
+    client.on_respmod(callback=async_callback)
+
+    await client.scan_bytes(b"test")
+
+    client.assert_all_responses_used()  # Should not raise
+
+
+@pytest.mark.asyncio
+async def test_async_assert_all_responses_used_callback_unused():
+    """Async client assert_all_responses_used fails with unused async callback."""
+    client = MockAsyncIcapClient()
+
+    async def async_callback(**kwargs):
+        return IcapResponseBuilder().clean().build()
+
+    client.on_respmod(callback=async_callback)
+
+    # No calls made
+
+    with pytest.raises(AssertionError) as exc_info:
+        client.assert_all_responses_used()
+
+    assert "respmod: callback was configured but never invoked" in str(exc_info.value)
+
+
+# === Phase 5: Marker-Based Strict Mode Tests ===
+
+
+@pytest.mark.icap_mock(strict=True)
+def test_marker_strict_mode_passes_with_defaults(icap_mock):
+    """Marker-based strict mode passes when only defaults are used."""
+    icap_mock.scan_bytes(b"test")
+    # Test should pass - assert_all_responses_used called automatically at teardown
+
+
+@pytest.mark.icap_mock(strict=True)
+@pytest.mark.icap_response("clean")
+@pytest.mark.icap_response("virus")
+def test_marker_strict_mode_passes_when_queue_consumed(icap_mock):
+    """Marker-based strict mode passes when all queued responses are consumed."""
+    icap_mock.scan_bytes(b"file1")  # clean
+    icap_mock.scan_bytes(b"file2")  # virus
+    # Test should pass - all responses consumed
+
+
+@pytest.mark.icap_mock(strict=False)
+@pytest.mark.icap_response("clean")
+@pytest.mark.icap_response("virus")
+def test_marker_strict_mode_disabled_allows_unconsumed(icap_mock):
+    """When strict=False, unconsumed responses don't cause failure."""
+    icap_mock.scan_bytes(b"file1")  # Only consume first response
+    # Test should pass - strict mode disabled
+
+
+@pytest.mark.icap_mock()
+@pytest.mark.icap_response("clean")
+def test_marker_strict_mode_defaults_to_false(icap_mock):
+    """Strict mode defaults to False when not specified."""
+    # Don't consume the response
+    assert icap_mock._strict is False
+    # Test should pass - strict mode not enabled
+
+
+@pytest.mark.icap_mock(strict=True, response="clean")
+def test_marker_strict_mode_with_on_any_response(icap_mock):
+    """Strict mode works with response= configuration (on_any)."""
+    icap_mock.scan_bytes(b"file1")
+    icap_mock.scan_bytes(b"file2")  # on_any responses are reusable
+    # Test should pass - on_any is not a queue, always passes
