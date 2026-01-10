@@ -3,14 +3,26 @@ Mock ICAP clients for testing without network I/O.
 
 This module provides mock implementations of IcapClient and AsyncIcapClient
 that can be used in tests without requiring a real ICAP server. The mocks
-support configurable responses and call recording for assertions.
+support configurable responses, call recording, and rich assertion capabilities.
+
+Key Features:
+    - **Response Configuration**: Set static, sequential, or dynamic responses.
+    - **Content Matchers**: Declarative rules for conditional responses.
+    - **Call Recording**: Track all method calls with rich inspection.
+    - **Assertion API**: Verify calls, arguments, and scan behavior.
+    - **Strict Mode**: Validate all configured responses were consumed.
 
 Classes:
     MockCall: Dataclass recording details of a single method call.
     MockIcapClient: Synchronous mock implementing the full IcapClient interface.
     MockAsyncIcapClient: Asynchronous mock implementing the AsyncIcapClient interface.
+    ResponseMatcher: Dataclass for content-based conditional responses.
+    MatcherBuilder: Fluent builder for creating matchers via when().
+    ResponseCallback: Protocol for dynamic response callbacks.
+    AsyncResponseCallback: Protocol for async dynamic response callbacks.
+    MockResponseExhaustedError: Raised when all queued responses are consumed.
 
-Example:
+Basic Example:
     >>> from pytest_pycap import MockIcapClient, IcapResponseBuilder
     >>>
     >>> # Create mock with default clean responses
@@ -25,6 +37,29 @@ Example:
     >>>
     >>> # Verify calls were made
     >>> client.assert_called("scan_bytes", times=2)
+
+Response Sequence Example:
+    >>> client = MockIcapClient()
+    >>> client.on_respmod(
+    ...     IcapResponseBuilder().clean().build(),
+    ...     IcapResponseBuilder().virus("Trojan").build(),
+    ...     IcapResponseBuilder().clean().build(),
+    ... )
+    >>> client.scan_bytes(b"file1").is_no_modification  # True
+    >>> client.scan_bytes(b"file2").is_no_modification  # False
+    >>> client.scan_bytes(b"file3").is_no_modification  # True
+
+Content Matcher Example:
+    >>> client = MockIcapClient()
+    >>> client.when(filename_matches=r".*\\.exe$").respond(
+    ...     IcapResponseBuilder().virus("Blocked.Exe").build()
+    ... )
+    >>> client.scan_bytes(b"data", filename="app.exe").is_no_modification  # False
+    >>> client.scan_bytes(b"data", filename="doc.pdf").is_no_modification  # True
+
+See Also:
+    pytest_pycap: Main package with fixtures and builders.
+    IcapResponseBuilder: Fluent builder for creating test responses.
 """
 
 from __future__ import annotations
@@ -582,38 +617,56 @@ class MockIcapClient:
     and call recording for assertions. By default, all methods return clean/success
     responses (204 No Modification for scans, 200 OK for OPTIONS).
 
-    The mock provides three main capabilities:
-        1. **Response Configuration**: Set what responses methods should return
-        2. **Exception Injection**: Make methods raise specific exceptions
-        3. **Call Recording**: Track all method calls for assertions
+    The mock provides six main capabilities:
+
+        1. **Response Configuration**: Set what responses methods should return.
+        2. **Response Sequences**: Queue multiple responses consumed in order.
+        3. **Dynamic Callbacks**: Generate responses based on request content.
+        4. **Content Matchers**: Declarative rules matching filename, service, or data.
+        5. **Call Recording**: Track all calls with rich inspection and filtering.
+        6. **Strict Mode**: Validate all configured responses were consumed.
+
+    Response Resolution Order:
+        When a method is called, the mock determines the response in this order:
+        1. **Matchers** - First matching rule wins (via when().respond())
+        2. **Callbacks** - If defined for the method (via on_respmod(callback=...))
+        3. **Queue** - Next queued response if available (via on_respmod(r1, r2, r3))
+        4. **Default** - Single configured response (via on_respmod(response))
 
     Attributes:
         host: Mock server hostname (default: "mock-icap-server").
         port: Mock server port (default: 1344).
         is_connected: Whether connect() has been called.
         calls: List of MockCall objects recording all method invocations.
+        call_count: Total number of calls made.
+        first_call: First call made (or None if no calls).
+        last_call: Most recent call (or None if no calls).
+        last_scan_call: Most recent scan_bytes/scan_file/scan_stream call.
 
     Configuration Methods:
-        on_options(response, raises): Configure OPTIONS method behavior.
-        on_respmod(response, raises): Configure RESPMOD and scan_* methods.
-        on_reqmod(response, raises): Configure REQMOD method behavior.
+        on_options(*responses, raises, callback): Configure OPTIONS responses.
+        on_respmod(*responses, raises, callback): Configure scan method responses.
+        on_reqmod(*responses, raises, callback): Configure REQMOD responses.
         on_any(response, raises): Configure all methods at once.
+        when(service, filename, filename_matches, data_contains): Create matchers.
+        reset_responses(): Clear all configured responses and matchers.
 
     Assertion Methods:
-        assert_called(method, times): Assert a method was called.
-        assert_not_called(method): Assert a method was not called.
+        assert_called(method, times): Assert method was called N times.
+        assert_not_called(method): Assert method was never called.
         assert_scanned(data): Assert specific bytes were scanned.
-        reset_calls(): Clear call history for fresh assertions.
+        assert_called_with(method, **kwargs): Assert last call had specific args.
+        assert_any_call(method, **kwargs): Assert any call had specific args.
+        assert_called_in_order(methods): Assert methods called in sequence.
+        assert_scanned_file(filepath): Assert specific file was scanned.
+        assert_scanned_with_filename(filename): Assert filename was used.
+        assert_all_responses_used(): Validate all responses consumed (strict mode).
+        reset_calls(): Clear call history.
 
-    IcapClient Interface:
-        connect(): Simulates connection (sets is_connected=True).
-        disconnect(): Simulates disconnection (sets is_connected=False).
-        options(service): Returns configured OPTIONS response.
-        respmod(service, http_request, http_response, ...): Returns RESPMOD response.
-        reqmod(service, http_request, ...): Returns REQMOD response.
-        scan_bytes(data, service, filename): High-level scan, uses RESPMOD response.
-        scan_file(filepath, service): Reads file and scans, uses RESPMOD response.
-        scan_stream(stream, service, filename): Reads stream and scans.
+    Query Methods:
+        get_calls(method): Filter calls by method name.
+        get_scan_calls(): Get all scan_bytes/scan_file/scan_stream calls.
+        call_counts_by_method: Dict of method name to call count.
 
     Example - Basic usage:
         >>> client = MockIcapClient()
@@ -621,43 +674,70 @@ class MockIcapClient:
         >>> assert response.is_no_modification  # Default is clean
         >>> client.assert_called("scan_bytes", times=1)
 
-    Example - Configure virus detection:
+    Example - Response sequence (consumed in order):
         >>> client = MockIcapClient()
-        >>> client.on_respmod(IcapResponseBuilder().virus("Trojan.Gen").build())
-        >>> response = client.scan_bytes(b"malware")
-        >>> assert not response.is_no_modification
-        >>> assert response.headers["X-Virus-ID"] == "Trojan.Gen"
+        >>> client.on_respmod(
+        ...     IcapResponseBuilder().clean().build(),
+        ...     IcapResponseBuilder().virus("Trojan").build(),
+        ...     IcapResponseBuilder().clean().build(),
+        ... )
+        >>> client.scan_bytes(b"file1").is_no_modification  # True (clean)
+        >>> client.scan_bytes(b"file2").is_no_modification  # False (virus)
+        >>> client.scan_bytes(b"file3").is_no_modification  # True (clean)
 
-    Example - Simulate timeout error:
+    Example - Dynamic callback:
+        >>> def eicar_detector(data: bytes, **kwargs) -> IcapResponse:
+        ...     if b"EICAR" in data:
+        ...         return IcapResponseBuilder().virus("EICAR-Test").build()
+        ...     return IcapResponseBuilder().clean().build()
+        >>> client = MockIcapClient()
+        >>> client.on_respmod(callback=eicar_detector)
+        >>> client.scan_bytes(b"safe").is_no_modification  # True
+        >>> client.scan_bytes(b"EICAR test").is_no_modification  # False
+
+    Example - Content matchers:
+        >>> client = MockIcapClient()
+        >>> client.when(filename_matches=r".*\\.exe$").respond(
+        ...     IcapResponseBuilder().virus("Blocked.Exe").build()
+        ... )
+        >>> client.when(data_contains=b"EICAR").respond(
+        ...     IcapResponseBuilder().virus("EICAR-Test").build()
+        ... )
+        >>> client.scan_bytes(b"safe", filename="doc.pdf").is_no_modification  # True
+        >>> client.scan_bytes(b"safe", filename="app.exe").is_no_modification  # False
+
+    Example - Exception injection:
         >>> from pycap.exception import IcapTimeoutError
         >>> client = MockIcapClient()
         >>> client.on_any(raises=IcapTimeoutError("Connection timed out"))
         >>> client.scan_bytes(b"content")  # Raises IcapTimeoutError
 
-    Example - Different responses per method:
+    Example - Rich call inspection:
         >>> client = MockIcapClient()
-        >>> client.on_options(IcapResponseBuilder().options().build())
-        >>> client.on_respmod(IcapResponseBuilder().virus().build())
-        >>> client.options("avscan").is_success  # True
-        >>> client.scan_bytes(b"data").is_no_modification  # False (virus)
+        >>> client.on_respmod(IcapResponseBuilder().virus("Trojan").build())
+        >>> client.scan_bytes(b"malware", filename="bad.exe")
+        >>> call = client.last_call
+        >>> call.filename  # "bad.exe"
+        >>> call.was_virus  # True
+        >>> call.matched_by  # "default"
+        >>> call.response.headers["X-Virus-ID"]  # "Trojan"
 
-    Example - Context manager:
-        >>> with MockIcapClient() as client:
-        ...     response = client.scan_file("/path/to/file.txt")
-        ...     assert response.is_no_modification
-
-    Example - Inspect call history:
-        >>> client = MockIcapClient()
-        >>> client.scan_bytes(b"test", filename="test.txt", service="avscan")
-        >>> call = client.calls[0]
-        >>> call.method  # "scan_bytes"
-        >>> call.kwargs["data"]  # b"test"
-        >>> call.kwargs["filename"]  # "test.txt"
+    Example - Strict mode (validate all responses used):
+        >>> client = MockIcapClient(strict=True)
+        >>> client.on_respmod(
+        ...     IcapResponseBuilder().clean().build(),
+        ...     IcapResponseBuilder().virus().build(),
+        ... )
+        >>> client.scan_bytes(b"file1")
+        >>> client.scan_bytes(b"file2")
+        >>> client.assert_all_responses_used()  # Passes - all consumed
 
     See Also:
         MockAsyncIcapClient: Async version with same API but awaitable methods.
         IcapResponseBuilder: Fluent builder for creating test responses.
         MockCall: Dataclass representing a recorded method call.
+        ResponseMatcher: Dataclass for content-based matching rules.
+        MatcherBuilder: Fluent API for creating matchers via when().
     """
 
     def __init__(

@@ -740,7 +740,7 @@ response = (
 
 ### MockIcapClient
 
-The `MockIcapClient` provides a full mock implementation with call recording:
+The `MockIcapClient` provides a full mock implementation with configurable responses, call recording, and rich assertions:
 
 ```python
 from pytest_pycap import MockIcapClient, IcapResponseBuilder
@@ -769,14 +769,103 @@ with MockIcapClient() as client:
     response = client.scan_file("/path/to/file.txt")
 ```
 
+**Response Sequences:**
+
+Queue multiple responses that are consumed in order:
+
+```python
+client = MockIcapClient()
+client.on_respmod(
+    IcapResponseBuilder().clean().build(),
+    IcapResponseBuilder().virus("Trojan").build(),
+    IcapResponseBuilder().clean().build(),
+)
+
+client.scan_bytes(b"file1").is_no_modification  # True (clean)
+client.scan_bytes(b"file2").is_no_modification  # False (virus)
+client.scan_bytes(b"file3").is_no_modification  # True (clean)
+```
+
+**Dynamic Callbacks:**
+
+Generate responses based on content:
+
+```python
+def eicar_detector(data: bytes, **kwargs):
+    if b"EICAR" in data:
+        return IcapResponseBuilder().virus("EICAR-Test").build()
+    return IcapResponseBuilder().clean().build()
+
+client = MockIcapClient()
+client.on_respmod(callback=eicar_detector)
+
+client.scan_bytes(b"safe").is_no_modification  # True
+client.scan_bytes(b"EICAR test").is_no_modification  # False
+```
+
+**Content Matchers:**
+
+Declarative rules for conditional responses:
+
+```python
+client = MockIcapClient()
+
+# Match by filename pattern
+client.when(filename_matches=r".*\.exe$").respond(
+    IcapResponseBuilder().virus("Blocked.Exe").build()
+)
+
+# Match by content
+client.when(data_contains=b"EICAR").respond(
+    IcapResponseBuilder().virus("EICAR-Test").build()
+)
+
+client.scan_bytes(b"safe", filename="doc.pdf").is_no_modification  # True
+client.scan_bytes(b"safe", filename="app.exe").is_no_modification  # False
+```
+
+**Rich Call Inspection:**
+
+Access detailed information about each call:
+
+```python
+client = MockIcapClient()
+client.scan_bytes(b"content", filename="test.txt")
+
+call = client.last_call
+call.method      # "scan_bytes"
+call.data        # b"content"
+call.filename    # "test.txt"
+call.was_clean   # True
+call.matched_by  # "default"
+```
+
+**Strict Mode:**
+
+Validate all configured responses were consumed:
+
+```python
+client = MockIcapClient(strict=True)
+client.on_respmod(
+    IcapResponseBuilder().clean().build(),
+    IcapResponseBuilder().virus().build(),
+)
+
+client.scan_bytes(b"file1")
+client.scan_bytes(b"file2")
+client.assert_all_responses_used()  # Passes - all consumed
+```
+
 **Configuration Methods:**
 
 | Method | Description |
 |--------|-------------|
-| `on_options(response, raises=)` | Configure OPTIONS responses |
-| `on_respmod(response, raises=)` | Configure RESPMOD/scan_* responses |
-| `on_reqmod(response, raises=)` | Configure REQMOD responses |
+| `on_options(*responses, raises=)` | Configure OPTIONS responses (single or sequence) |
+| `on_respmod(*responses, raises=, callback=)` | Configure RESPMOD/scan_* responses |
+| `on_reqmod(*responses, raises=)` | Configure REQMOD responses |
 | `on_any(response, raises=)` | Configure all methods at once |
+| `when(filename=, filename_matches=, data_contains=)` | Create content matchers |
+| `reset_responses()` | Clear all configured responses |
 
 **Assertion Methods:**
 
@@ -785,8 +874,23 @@ with MockIcapClient() as client:
 | `assert_called(method, times=)` | Assert method was called |
 | `assert_not_called(method=)` | Assert method was not called |
 | `assert_scanned(data)` | Assert specific content was scanned |
+| `assert_called_with(method, **kwargs)` | Assert last call had specific args |
+| `assert_any_call(method, **kwargs)` | Assert any call had specific args |
+| `assert_called_in_order(methods)` | Assert methods called in sequence |
+| `assert_all_responses_used()` | Validate all responses consumed (strict mode) |
 | `reset_calls()` | Clear call history |
-| `calls` | List of `MockCall` objects |
+
+**Call Properties:**
+
+| Property | Description |
+|----------|-------------|
+| `calls` | List of all `MockCall` objects |
+| `call_count` | Total number of calls |
+| `first_call` | First call made (or None) |
+| `last_call` | Most recent call (or None) |
+| `last_scan_call` | Most recent scan_bytes/scan_file/scan_stream call |
+| `get_calls(method)` | Filter calls by method name |
+| `get_scan_calls()` | Get all scan-related calls |
 
 ### icap_mock Marker
 
@@ -820,6 +924,15 @@ def test_timeout(icap_mock):
     with pytest.raises(IcapTimeoutError):
         icap_mock.scan_bytes(b"content")
 
+# Strict mode - fails if not all responses consumed
+@pytest.mark.icap_mock(strict=True)
+@pytest.mark.icap_response("clean")
+@pytest.mark.icap_response("virus")
+def test_strict_mode(icap_mock):
+    icap_mock.scan_bytes(b"file1")  # clean
+    icap_mock.scan_bytes(b"file2")  # virus
+    # Test passes - all responses consumed
+
 # Per-method configuration
 @pytest.mark.icap_mock(
     respmod={"response": "virus"},
@@ -833,6 +946,30 @@ def test_mixed_config(icap_mock):
     assert options_response.is_no_modification
 ```
 
+**Stacked Response Markers:**
+
+Use `@pytest.mark.icap_response` to queue multiple responses declaratively:
+
+```python
+# Responses are consumed top-to-bottom
+@pytest.mark.icap_response("clean")
+@pytest.mark.icap_response("virus", virus_name="Trojan.Gen")
+@pytest.mark.icap_response("clean")
+def test_sequence(icap_mock):
+    r1 = icap_mock.scan_bytes(b"file1")  # clean
+    r2 = icap_mock.scan_bytes(b"file2")  # virus
+    r3 = icap_mock.scan_bytes(b"file3")  # clean
+    assert r1.is_no_modification
+    assert not r2.is_no_modification
+    assert r3.is_no_modification
+
+# Custom error responses
+@pytest.mark.icap_response("error", code=503, message="Unavailable")
+def test_custom_error(icap_mock):
+    response = icap_mock.scan_bytes(b"content")
+    assert response.status_code == 503
+```
+
 **Marker Parameters:**
 
 | Parameter | Description |
@@ -840,6 +977,7 @@ def test_mixed_config(icap_mock):
 | `response` | `"clean"`, `"virus"`, `"error"`, or `IcapResponse` |
 | `virus_name` | Custom virus name (when `response="virus"`) |
 | `raises` | Exception class or instance to raise |
+| `strict` | If `True`, fails test if configured responses not consumed |
 | `options` | Dict with per-method config for OPTIONS |
 | `respmod` | Dict with per-method config for RESPMOD |
 | `reqmod` | Dict with per-method config for REQMOD |
