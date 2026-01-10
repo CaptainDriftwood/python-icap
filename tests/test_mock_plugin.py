@@ -1164,3 +1164,634 @@ async def test_async_matcher_times_limit():
 
     response2 = await client.scan_bytes(b"bad again")
     assert response2.is_no_modification  # Matcher exhausted
+
+
+# === Phase 4: Enhanced Call History Tests ===
+
+
+# --- MockCall Enhanced Fields Tests ---
+
+
+def test_mock_call_response_field():
+    """MockCall.response is populated after successful call."""
+    client = MockIcapClient()
+    response = client.scan_bytes(b"test")
+
+    call = client.last_call
+    assert call.response is response
+    assert call.exception is None
+
+
+def test_mock_call_exception_field():
+    """MockCall.exception is populated when call raises."""
+    client = MockIcapClient()
+    client.on_respmod(raises=IcapTimeoutError("Timeout"))
+
+    with pytest.raises(IcapTimeoutError):
+        client.scan_bytes(b"test")
+
+    call = client.last_call
+    assert call.response is None
+    assert isinstance(call.exception, IcapTimeoutError)
+
+
+def test_mock_call_matched_by_default():
+    """MockCall.matched_by is 'default' for unconfigured responses."""
+    client = MockIcapClient()
+    client.scan_bytes(b"test")
+
+    assert client.last_call.matched_by == "default"
+
+
+def test_mock_call_matched_by_matcher():
+    """MockCall.matched_by is 'matcher' when matcher triggers."""
+    client = MockIcapClient()
+    client.when(filename="virus.exe").respond(IcapResponseBuilder().virus().build())
+
+    client.scan_bytes(b"test", filename="virus.exe")
+    assert client.last_call.matched_by == "matcher"
+
+    # Non-matching call falls to default
+    client.scan_bytes(b"test", filename="safe.txt")
+    assert client.last_call.matched_by == "default"
+
+
+def test_mock_call_matched_by_callback():
+    """MockCall.matched_by is 'callback' when callback is used."""
+
+    def my_callback(data: bytes, **kwargs):
+        return IcapResponseBuilder().clean().build()
+
+    client = MockIcapClient()
+    client.on_respmod(callback=my_callback)
+    client.scan_bytes(b"test")
+
+    assert client.last_call.matched_by == "callback"
+
+
+def test_mock_call_matched_by_queue():
+    """MockCall.matched_by is 'queue' when response comes from queue."""
+    client = MockIcapClient()
+    client.on_respmod(
+        IcapResponseBuilder().clean().build(),
+        IcapResponseBuilder().virus().build(),
+    )
+
+    client.scan_bytes(b"file1")
+    assert client.last_call.matched_by == "queue"
+
+    client.scan_bytes(b"file2")
+    assert client.last_call.matched_by == "queue"
+
+
+def test_mock_call_call_index():
+    """MockCall.call_index reflects position in call history."""
+    client = MockIcapClient()
+
+    client.scan_bytes(b"first")
+    client.options("avscan")
+    client.scan_bytes(b"second")
+
+    assert client.calls[0].call_index == 0
+    assert client.calls[1].call_index == 1
+    assert client.calls[2].call_index == 2
+
+
+# --- MockCall Convenience Properties Tests ---
+
+
+def test_mock_call_data_property():
+    """MockCall.data returns kwargs['data']."""
+    client = MockIcapClient()
+    client.scan_bytes(b"test content")
+
+    assert client.last_call.data == b"test content"
+
+
+def test_mock_call_data_property_none():
+    """MockCall.data returns None when not a scan call."""
+    client = MockIcapClient()
+    client.options("avscan")
+
+    assert client.last_call.data is None
+
+
+def test_mock_call_filename_property():
+    """MockCall.filename returns kwargs['filename']."""
+    client = MockIcapClient()
+    client.scan_bytes(b"test", filename="report.pdf")
+
+    assert client.last_call.filename == "report.pdf"
+
+
+def test_mock_call_filename_property_none():
+    """MockCall.filename returns None when not provided."""
+    client = MockIcapClient()
+    client.scan_bytes(b"test")
+
+    assert client.last_call.filename is None
+
+
+def test_mock_call_service_property():
+    """MockCall.service returns kwargs['service']."""
+    client = MockIcapClient()
+    client.scan_bytes(b"test", service="custom_service")
+
+    assert client.last_call.service == "custom_service"
+
+
+def test_mock_call_succeeded_property():
+    """MockCall.succeeded reflects whether call raised."""
+    client = MockIcapClient()
+
+    # Successful call
+    client.scan_bytes(b"test")
+    assert client.last_call.succeeded is True
+
+    # Failed call
+    client.on_respmod(raises=IcapConnectionError("Failed"))
+    with pytest.raises(IcapConnectionError):
+        client.scan_bytes(b"test")
+    assert client.last_call.succeeded is False
+
+
+def test_mock_call_was_clean_property():
+    """MockCall.was_clean reflects 204 No Modification response."""
+    client = MockIcapClient()
+
+    # Clean response
+    client.scan_bytes(b"safe content")
+    assert client.last_call.was_clean is True
+
+    # Virus response
+    client.on_respmod(IcapResponseBuilder().virus().build())
+    client.scan_bytes(b"infected")
+    assert client.last_call.was_clean is False
+
+
+def test_mock_call_was_clean_false_on_exception():
+    """MockCall.was_clean is False when exception was raised."""
+    client = MockIcapClient()
+    client.on_respmod(raises=IcapTimeoutError("Timeout"))
+
+    with pytest.raises(IcapTimeoutError):
+        client.scan_bytes(b"test")
+
+    assert client.last_call.was_clean is False
+
+
+def test_mock_call_was_virus_property():
+    """MockCall.was_virus reflects X-Virus-ID header presence."""
+    client = MockIcapClient()
+
+    # Clean response - no virus
+    client.scan_bytes(b"safe content")
+    assert client.last_call.was_virus is False
+
+    # Virus response
+    client.on_respmod(IcapResponseBuilder().virus("Trojan.Test").build())
+    client.scan_bytes(b"infected")
+    assert client.last_call.was_virus is True
+
+
+def test_mock_call_was_virus_false_on_exception():
+    """MockCall.was_virus is False when exception was raised."""
+    client = MockIcapClient()
+    client.on_respmod(raises=IcapConnectionError("Failed"))
+
+    with pytest.raises(IcapConnectionError):
+        client.scan_bytes(b"test")
+
+    assert client.last_call.was_virus is False
+
+
+def test_mock_call_repr_clean():
+    """MockCall repr shows clean result."""
+    client = MockIcapClient()
+    client.scan_bytes(b"test", filename="file.txt")
+
+    repr_str = repr(client.last_call)
+    assert "scan_bytes" in repr_str
+    assert "file.txt" in repr_str
+    assert "clean" in repr_str
+
+
+def test_mock_call_repr_virus():
+    """MockCall repr shows virus result with ID."""
+    client = MockIcapClient()
+    client.on_respmod(IcapResponseBuilder().virus("Trojan.Custom").build())
+    client.scan_bytes(b"infected")
+
+    repr_str = repr(client.last_call)
+    assert "virus" in repr_str
+    assert "Trojan.Custom" in repr_str
+
+
+def test_mock_call_repr_exception():
+    """MockCall repr shows exception type."""
+    client = MockIcapClient()
+    client.on_respmod(raises=IcapTimeoutError("Timeout"))
+
+    with pytest.raises(IcapTimeoutError):
+        client.scan_bytes(b"test")
+
+    repr_str = repr(client.last_call)
+    assert "raised" in repr_str
+    assert "IcapTimeoutError" in repr_str
+
+
+def test_mock_call_repr_truncates_long_data():
+    """MockCall repr truncates long data."""
+    client = MockIcapClient()
+    client.scan_bytes(b"x" * 100)
+
+    repr_str = repr(client.last_call)
+    assert "..." in repr_str
+
+
+# --- Call Query/Filter Methods Tests ---
+
+
+def test_first_call_property():
+    """first_call returns the first recorded call."""
+    client = MockIcapClient()
+
+    # No calls yet
+    assert client.first_call is None
+
+    client.scan_bytes(b"first")
+    client.scan_bytes(b"second")
+
+    assert client.first_call.data == b"first"
+
+
+def test_last_call_property():
+    """last_call returns the most recent call."""
+    client = MockIcapClient()
+
+    # No calls yet
+    assert client.last_call is None
+
+    client.scan_bytes(b"first")
+    client.scan_bytes(b"second")
+
+    assert client.last_call.data == b"second"
+
+
+def test_last_scan_call_property():
+    """last_scan_call returns most recent scan call only."""
+    client = MockIcapClient()
+
+    # No calls yet
+    assert client.last_scan_call is None
+
+    client.options("avscan")
+    assert client.last_scan_call is None  # OPTIONS is not a scan
+
+    client.scan_bytes(b"scanned")
+    assert client.last_scan_call.data == b"scanned"
+
+    client.options("avscan")  # Another non-scan
+    # Still returns the scan_bytes call
+    assert client.last_scan_call.method == "scan_bytes"
+    assert client.last_scan_call.data == b"scanned"
+
+
+def test_get_calls_all():
+    """get_calls() without filter returns all calls."""
+    client = MockIcapClient()
+    client.options("avscan")
+    client.scan_bytes(b"test")
+    client.scan_bytes(b"test2")
+
+    calls = client.get_calls()
+    assert len(calls) == 3
+
+
+def test_get_calls_filtered():
+    """get_calls(method) filters by method name."""
+    client = MockIcapClient()
+    client.options("avscan")
+    client.scan_bytes(b"test1")
+    client.scan_bytes(b"test2")
+    client.options("avscan")
+
+    scan_calls = client.get_calls("scan_bytes")
+    assert len(scan_calls) == 2
+    assert all(c.method == "scan_bytes" for c in scan_calls)
+
+    options_calls = client.get_calls("options")
+    assert len(options_calls) == 2
+
+
+def test_get_scan_calls():
+    """get_scan_calls() returns only scan_* methods."""
+    client = MockIcapClient()
+    client.options("avscan")
+    client.scan_bytes(b"bytes data")
+    client.reqmod("avscan", b"GET / HTTP/1.1\r\n")
+
+    # Create a temp file for scan_file
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        f.write(b"file content")
+        temp_path = f.name
+
+    try:
+        client.scan_file(temp_path)
+
+        scan_calls = client.get_scan_calls()
+        assert len(scan_calls) == 2
+        assert scan_calls[0].method == "scan_bytes"
+        assert scan_calls[1].method == "scan_file"
+    finally:
+        import os
+
+        os.unlink(temp_path)
+
+
+def test_get_scan_calls_includes_scan_stream():
+    """get_scan_calls() includes scan_stream."""
+    client = MockIcapClient()
+    stream = io.BytesIO(b"stream content")
+    client.scan_stream(stream)
+
+    scan_calls = client.get_scan_calls()
+    assert len(scan_calls) == 1
+    assert scan_calls[0].method == "scan_stream"
+
+
+# --- Call Statistics Tests ---
+
+
+def test_call_count_property():
+    """call_count returns total number of calls."""
+    client = MockIcapClient()
+
+    assert client.call_count == 0
+
+    client.scan_bytes(b"test")
+    assert client.call_count == 1
+
+    client.options("avscan")
+    client.scan_bytes(b"test2")
+    assert client.call_count == 3
+
+
+def test_call_counts_by_method():
+    """call_counts_by_method groups counts by method name."""
+    client = MockIcapClient()
+
+    client.scan_bytes(b"test1")
+    client.scan_bytes(b"test2")
+    client.options("avscan")
+    client.scan_bytes(b"test3")
+    client.reqmod("avscan", b"GET /\r\n")
+
+    counts = client.call_counts_by_method
+    assert counts["scan_bytes"] == 3
+    assert counts["options"] == 1
+    assert counts["reqmod"] == 1
+
+
+def test_call_counts_by_method_empty():
+    """call_counts_by_method returns empty dict when no calls."""
+    client = MockIcapClient()
+    assert client.call_counts_by_method == {}
+
+
+# --- Enhanced Assertion Methods Tests ---
+
+
+def test_assert_called_with_matches():
+    """assert_called_with passes when kwargs match."""
+    client = MockIcapClient()
+    client.scan_bytes(b"content", filename="test.txt", service="avscan")
+
+    # All of these should pass
+    client.assert_called_with("scan_bytes", data=b"content")
+    client.assert_called_with("scan_bytes", filename="test.txt")
+    client.assert_called_with("scan_bytes", service="avscan")
+    client.assert_called_with("scan_bytes", data=b"content", filename="test.txt")
+
+
+def test_assert_called_with_fails_no_call():
+    """assert_called_with fails if method never called."""
+    client = MockIcapClient()
+
+    with pytest.raises(AssertionError, match="never called"):
+        client.assert_called_with("scan_bytes", data=b"test")
+
+
+def test_assert_called_with_fails_wrong_value():
+    """assert_called_with fails if value doesn't match."""
+    client = MockIcapClient()
+    client.scan_bytes(b"actual", filename="actual.txt")
+
+    with pytest.raises(AssertionError, match="expected"):
+        client.assert_called_with("scan_bytes", filename="expected.txt")
+
+
+def test_assert_called_with_checks_last_call():
+    """assert_called_with checks the most recent call to method."""
+    client = MockIcapClient()
+    client.scan_bytes(b"first", filename="first.txt")
+    client.scan_bytes(b"second", filename="second.txt")
+
+    # Should check the second call
+    client.assert_called_with("scan_bytes", filename="second.txt")
+
+    with pytest.raises(AssertionError):
+        client.assert_called_with("scan_bytes", filename="first.txt")
+
+
+def test_assert_any_call_matches():
+    """assert_any_call passes when any call matches."""
+    client = MockIcapClient()
+    client.scan_bytes(b"first", filename="a.txt")
+    client.scan_bytes(b"second", filename="b.txt")
+    client.scan_bytes(b"third", filename="c.txt")
+
+    # All of these should pass (different calls)
+    client.assert_any_call("scan_bytes", filename="a.txt")
+    client.assert_any_call("scan_bytes", filename="b.txt")
+    client.assert_any_call("scan_bytes", filename="c.txt")
+
+
+def test_assert_any_call_fails_no_match():
+    """assert_any_call fails if no call matches."""
+    client = MockIcapClient()
+    client.scan_bytes(b"first", filename="a.txt")
+    client.scan_bytes(b"second", filename="b.txt")
+
+    with pytest.raises(AssertionError, match="No call"):
+        client.assert_any_call("scan_bytes", filename="z.txt")
+
+
+def test_assert_any_call_fails_no_calls():
+    """assert_any_call fails if method never called."""
+    client = MockIcapClient()
+
+    with pytest.raises(AssertionError, match="never called"):
+        client.assert_any_call("scan_bytes", data=b"test")
+
+
+def test_assert_called_in_order_passes():
+    """assert_called_in_order passes for correct order."""
+    client = MockIcapClient()
+    client.options("avscan")
+    client.scan_bytes(b"test")
+    client.reqmod("avscan", b"GET /\r\n")
+
+    # Exact order
+    client.assert_called_in_order(["options", "scan_bytes", "reqmod"])
+
+    # Subsequence order (allows gaps)
+    client.assert_called_in_order(["options", "reqmod"])
+    client.assert_called_in_order(["options", "scan_bytes"])
+    client.assert_called_in_order(["scan_bytes", "reqmod"])
+
+
+def test_assert_called_in_order_fails():
+    """assert_called_in_order fails for wrong order."""
+    client = MockIcapClient()
+    client.options("avscan")
+    client.scan_bytes(b"test")
+
+    with pytest.raises(AssertionError, match="not called in expected order"):
+        client.assert_called_in_order(["scan_bytes", "options"])
+
+
+def test_assert_called_in_order_empty():
+    """assert_called_in_order passes for empty list."""
+    client = MockIcapClient()
+    client.assert_called_in_order([])  # Should pass
+
+
+def test_assert_scanned_file_passes(tmp_path):
+    """assert_scanned_file passes when file was scanned."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_bytes(b"content")
+
+    client = MockIcapClient()
+    client.scan_file(test_file)
+
+    client.assert_scanned_file(str(test_file))
+
+
+def test_assert_scanned_file_fails():
+    """assert_scanned_file fails when file wasn't scanned."""
+    client = MockIcapClient()
+    client.scan_bytes(b"test")  # Different method
+
+    with pytest.raises(AssertionError, match="was not scanned"):
+        client.assert_scanned_file("/some/file.txt")
+
+
+def test_assert_scanned_with_filename_passes():
+    """assert_scanned_with_filename passes when filename matches."""
+    client = MockIcapClient()
+    client.scan_bytes(b"content", filename="report.pdf")
+
+    client.assert_scanned_with_filename("report.pdf")
+
+
+def test_assert_scanned_with_filename_scan_stream():
+    """assert_scanned_with_filename works with scan_stream."""
+    client = MockIcapClient()
+    stream = io.BytesIO(b"stream content")
+    client.scan_stream(stream, filename="stream.bin")
+
+    client.assert_scanned_with_filename("stream.bin")
+
+
+def test_assert_scanned_with_filename_fails():
+    """assert_scanned_with_filename fails when filename not found."""
+    client = MockIcapClient()
+    client.scan_bytes(b"content", filename="actual.txt")
+
+    with pytest.raises(AssertionError, match="No scan was made"):
+        client.assert_scanned_with_filename("expected.txt")
+
+
+# --- Async Phase 4 Tests ---
+
+
+@pytest.mark.asyncio
+async def test_async_mock_call_response_field():
+    """Async MockCall.response is populated after successful call."""
+    client = MockAsyncIcapClient()
+    response = await client.scan_bytes(b"test")
+
+    call = client.last_call
+    assert call.response is response
+    assert call.exception is None
+
+
+@pytest.mark.asyncio
+async def test_async_mock_call_exception_field():
+    """Async MockCall.exception is populated when call raises."""
+    client = MockAsyncIcapClient()
+    client.on_respmod(raises=IcapTimeoutError("Timeout"))
+
+    with pytest.raises(IcapTimeoutError):
+        await client.scan_bytes(b"test")
+
+    call = client.last_call
+    assert call.response is None
+    assert isinstance(call.exception, IcapTimeoutError)
+
+
+@pytest.mark.asyncio
+async def test_async_mock_call_matched_by():
+    """Async MockCall.matched_by tracks response source correctly."""
+    client = MockAsyncIcapClient()
+
+    # Default
+    await client.scan_bytes(b"test1")
+    assert client.last_call.matched_by == "default"
+
+    # Matcher
+    client.when(filename="virus.exe").respond(IcapResponseBuilder().virus().build())
+    await client.scan_bytes(b"test2", filename="virus.exe")
+    assert client.last_call.matched_by == "matcher"
+
+    # Callback
+    client.reset_responses()
+
+    async def async_cb(data: bytes, **kwargs):
+        return IcapResponseBuilder().clean().build()
+
+    client.on_respmod(callback=async_cb)
+    await client.scan_bytes(b"test3")
+    assert client.last_call.matched_by == "callback"
+
+
+@pytest.mark.asyncio
+async def test_async_call_query_methods():
+    """Async client call query methods work correctly."""
+    client = MockAsyncIcapClient()
+
+    await client.options("avscan")
+    await client.scan_bytes(b"first")
+    await client.scan_bytes(b"second")
+
+    assert client.first_call.method == "options"
+    assert client.last_call.data == b"second"
+    assert client.last_scan_call.data == b"second"
+    assert client.call_count == 3
+    assert client.call_counts_by_method == {"options": 1, "scan_bytes": 2}
+
+
+@pytest.mark.asyncio
+async def test_async_enhanced_assertions():
+    """Async client enhanced assertions work correctly."""
+    client = MockAsyncIcapClient()
+
+    await client.options("avscan")
+    await client.scan_bytes(b"test", filename="file.txt")
+
+    client.assert_called_with("scan_bytes", filename="file.txt")
+    client.assert_any_call("scan_bytes", data=b"test")
+    client.assert_called_in_order(["options", "scan_bytes"])

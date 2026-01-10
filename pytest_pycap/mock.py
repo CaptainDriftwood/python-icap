@@ -376,6 +376,7 @@ class MockCall:
 
     MockCall instances are created automatically when methods are called on
     the mock client and stored in the `calls` list for later inspection.
+    Enhanced in Phase 4 to track responses, exceptions, and match source.
 
     Attributes:
         method: Name of the method that was called (e.g., "scan_bytes", "options").
@@ -393,26 +394,184 @@ class MockCall:
                                    "chunk_size": int}
             - scan_stream (async): {"data": bytes, "service": str, "filename": str|None}
               Note: async scan_stream doesn't have chunk_size (matches AsyncIcapClient API)
+        response: The IcapResponse returned by the call (None if exception raised).
+        exception: The exception raised by the call (None if successful).
+        matched_by: How the response was determined: "matcher", "callback", "queue",
+            or "default". Useful for debugging which configuration produced the response.
+        call_index: Position in the call history (0-based).
 
-    Example:
+    Properties:
+        data: Shorthand for kwargs.get("data") - the scanned content.
+        filename: Shorthand for kwargs.get("filename") - the filename if provided.
+        service: Shorthand for kwargs.get("service") - the service name.
+        succeeded: True if the call completed without raising an exception.
+        was_clean: True if the response indicates no modification (clean scan).
+        was_virus: True if the response indicates virus detection.
+
+    Example - Basic inspection:
         >>> client = MockIcapClient()
         >>> client.scan_bytes(b"test", filename="test.txt")
         >>> call = client.calls[0]
         >>> call.method
         'scan_bytes'
-        >>> call.kwargs["data"]
+        >>> call.data
         b'test'
-        >>> call.kwargs["filename"]
+        >>> call.filename
         'test.txt'
+        >>> call.was_clean
+        True
+        >>> call.matched_by
+        'default'
+
+    Example - Checking virus detection:
+        >>> client.on_respmod(IcapResponseBuilder().virus("Trojan").build())
+        >>> client.scan_bytes(b"malware")
+        >>> call = client.last_call
+        >>> call.was_virus
+        True
+        >>> call.response.headers["X-Virus-ID"]
+        'Trojan'
+
+    Example - Exception tracking:
+        >>> client.on_respmod(raises=IcapTimeoutError("Timeout"))
+        >>> try:
+        ...     client.scan_bytes(b"data")
+        ... except IcapTimeoutError:
+        ...     pass
+        >>> call = client.calls[-1]
+        >>> call.succeeded
+        False
+        >>> type(call.exception).__name__
+        'IcapTimeoutError'
     """
 
     method: str
     timestamp: float
     kwargs: dict[str, Any] = field(default_factory=dict)
 
+    # Phase 4 additions: track response/exception and how it was determined
+    response: IcapResponse | None = None
+    exception: Exception | None = None
+    matched_by: str | None = None  # "matcher", "callback", "queue", or "default"
+    call_index: int = 0
+
+    # === Convenience Properties ===
+
+    @property
+    def data(self) -> bytes | None:
+        """
+        Get the scanned data if this was a scan call.
+
+        Returns:
+            The bytes that were scanned, or None if not a scan call.
+        """
+        return self.kwargs.get("data")
+
+    @property
+    def filename(self) -> str | None:
+        """
+        Get the filename if provided to the call.
+
+        Returns:
+            The filename argument, or None if not provided.
+        """
+        return self.kwargs.get("filename")
+
+    @property
+    def service(self) -> str | None:
+        """
+        Get the service name used in the call.
+
+        Returns:
+            The service name (e.g., "avscan"), or None if not provided.
+        """
+        return self.kwargs.get("service")
+
+    @property
+    def succeeded(self) -> bool:
+        """
+        Check if the call completed successfully (didn't raise an exception).
+
+        Returns:
+            True if the call returned a response, False if it raised an exception.
+        """
+        return self.exception is None
+
+    @property
+    def was_clean(self) -> bool:
+        """
+        Check if the call resulted in a clean (no modification) response.
+
+        Returns:
+            True if the call succeeded and returned a 204 No Modification response.
+            False if an exception was raised or the response indicates modification.
+        """
+        return (
+            self.exception is None
+            and self.response is not None
+            and self.response.is_no_modification
+        )
+
+    @property
+    def was_virus(self) -> bool:
+        """
+        Check if the call resulted in a virus detection.
+
+        Returns:
+            True if the call succeeded and the response contains an X-Virus-ID header.
+            False if an exception was raised, response is clean, or no virus header present.
+        """
+        return (
+            self.exception is None
+            and self.response is not None
+            and not self.response.is_no_modification
+            and "X-Virus-ID" in self.response.headers
+        )
+
     def __repr__(self) -> str:
-        args_str = ", ".join(f"{k}={v!r}" for k, v in self.kwargs.items())
-        return f"MockCall({self.method}({args_str}))"
+        """
+        Return a rich string representation for debugging.
+
+        Format: method(data=..., filename=...) -> result
+        Where result is one of: clean, virus(name), raised ExceptionType
+        """
+        parts = [f"{self.method}("]
+
+        # Show truncated data if present
+        if self.data is not None:
+            if len(self.data) > 20:
+                parts.append(f"data={self.data[:20]!r}...")
+            else:
+                parts.append(f"data={self.data!r}")
+
+        # Show filename if present
+        if self.filename:
+            if self.data is not None:
+                parts.append(f", filename={self.filename!r}")
+            else:
+                parts.append(f"filename={self.filename!r}")
+
+        # Show service if different from default
+        if self.service and self.service != "avscan":
+            if self.data is not None or self.filename:
+                parts.append(f", service={self.service!r}")
+            else:
+                parts.append(f"service={self.service!r}")
+
+        parts.append(")")
+
+        # Show result
+        if self.was_clean:
+            parts.append(" -> clean")
+        elif self.was_virus:
+            virus_id = self.response.headers.get("X-Virus-ID", "unknown")
+            parts.append(f" -> virus({virus_id})")
+        elif self.exception:
+            parts.append(f" -> raised {type(self.exception).__name__}")
+        elif self.response:
+            parts.append(f" -> {self.response.status_code}")
+
+        return "".join(parts)
 
 
 class MockIcapClient:
@@ -953,6 +1112,156 @@ class MockIcapClient:
         """
         return self._calls.copy()
 
+    @property
+    def first_call(self) -> MockCall | None:
+        """
+        Get the first recorded call, or None if no calls were made.
+
+        Returns:
+            The first MockCall, or None if calls list is empty.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.first_call  # None
+            >>> client.scan_bytes(b"first")
+            >>> client.scan_bytes(b"second")
+            >>> client.first_call.data
+            b'first'
+        """
+        return self._calls[0] if self._calls else None
+
+    @property
+    def last_call(self) -> MockCall | None:
+        """
+        Get the most recent call, or None if no calls were made.
+
+        Returns:
+            The last MockCall, or None if calls list is empty.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.last_call  # None
+            >>> client.scan_bytes(b"first")
+            >>> client.scan_bytes(b"second")
+            >>> client.last_call.data
+            b'second'
+        """
+        return self._calls[-1] if self._calls else None
+
+    @property
+    def last_scan_call(self) -> MockCall | None:
+        """
+        Get the most recent scan call (scan_bytes, scan_file, scan_stream).
+
+        Returns:
+            The last scan-related MockCall, or None if no scan calls were made.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.options("avscan")  # Not a scan
+            >>> client.scan_bytes(b"test")  # This is a scan
+            >>> client.options("avscan")  # Not a scan
+            >>> client.last_scan_call.method
+            'scan_bytes'
+            >>> client.last_scan_call.data
+            b'test'
+        """
+        scan_methods = {"scan_bytes", "scan_file", "scan_stream"}
+        for call in reversed(self._calls):
+            if call.method in scan_methods:
+                return call
+        return None
+
+    def get_calls(self, method: str | None = None) -> list[MockCall]:
+        """
+        Get calls, optionally filtered by method name.
+
+        Args:
+            method: If provided, only return calls with this method name.
+                    If None, returns all calls.
+
+        Returns:
+            List of matching MockCall objects in chronological order.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.options("avscan")
+            >>> client.scan_bytes(b"file1")
+            >>> client.scan_bytes(b"file2")
+            >>> len(client.get_calls())  # All calls
+            3
+            >>> len(client.get_calls("scan_bytes"))  # Only scan_bytes
+            2
+            >>> [c.data for c in client.get_calls("scan_bytes")]
+            [b'file1', b'file2']
+        """
+        if method is None:
+            return self._calls.copy()
+        return [c for c in self._calls if c.method == method]
+
+    def get_scan_calls(self) -> list[MockCall]:
+        """
+        Get all scan-related calls (scan_bytes, scan_file, scan_stream).
+
+        Convenience method for filtering to only scan operations, excluding
+        lower-level calls like options, respmod, and reqmod.
+
+        Returns:
+            List of scan MockCall objects in chronological order.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.options("avscan")
+            >>> client.scan_bytes(b"file1")
+            >>> client.scan_file("/path/to/file.txt")
+            >>> len(client.get_scan_calls())
+            2
+            >>> [c.method for c in client.get_scan_calls()]
+            ['scan_bytes', 'scan_file']
+        """
+        scan_methods = {"scan_bytes", "scan_file", "scan_stream"}
+        return [c for c in self._calls if c.method in scan_methods]
+
+    @property
+    def call_count(self) -> int:
+        """
+        Get the total number of calls made.
+
+        Returns:
+            The number of recorded method calls.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.call_count
+            0
+            >>> client.scan_bytes(b"test")
+            >>> client.options("avscan")
+            >>> client.call_count
+            2
+        """
+        return len(self._calls)
+
+    @property
+    def call_counts_by_method(self) -> dict[str, int]:
+        """
+        Get call counts grouped by method name.
+
+        Returns:
+            Dictionary mapping method names to their call counts.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.scan_bytes(b"file1")
+            >>> client.scan_bytes(b"file2")
+            >>> client.options("avscan")
+            >>> client.call_counts_by_method
+            {'scan_bytes': 2, 'options': 1}
+        """
+        counts: dict[str, int] = {}
+        for call in self._calls:
+            counts[call.method] = counts.get(call.method, 0) + 1
+        return counts
+
     def assert_called(self, method: str, *, times: int | None = None) -> None:
         """
         Assert that a method was called.
@@ -1053,6 +1362,164 @@ class MockIcapClient:
         """
         self._calls.clear()
 
+    def assert_called_with(self, method: str, **kwargs: Any) -> None:
+        """
+        Assert that a method was called with specific arguments.
+
+        Finds the most recent call to the method and checks that the provided
+        kwargs match the call's arguments. Only the provided kwargs are checked;
+        additional arguments in the call are allowed.
+
+        Args:
+            method: Method name to check.
+            **kwargs: Expected keyword arguments (partial match).
+
+        Raises:
+            AssertionError: If the method was never called, or the most recent
+                call doesn't match the expected kwargs.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.scan_bytes(b"content", filename="test.txt", service="avscan")
+            >>> client.assert_called_with("scan_bytes", data=b"content")  # Passes
+            >>> client.assert_called_with("scan_bytes", filename="test.txt")  # Passes
+            >>> client.assert_called_with("scan_bytes", filename="other.txt")  # Fails
+        """
+        matching = [c for c in self._calls if c.method == method]
+        if not matching:
+            raise AssertionError(f"Method '{method}' was never called")
+
+        last_call = matching[-1]
+        for key, expected_value in kwargs.items():
+            actual_value = last_call.kwargs.get(key)
+            if actual_value != expected_value:
+                raise AssertionError(
+                    f"Method '{method}' called with {key}={actual_value!r}, "
+                    f"expected {key}={expected_value!r}"
+                )
+
+    def assert_any_call(self, method: str, **kwargs: Any) -> None:
+        """
+        Assert that at least one call matches the specified arguments.
+
+        Searches all calls to the method for one that matches all provided kwargs.
+        Unlike assert_called_with, this doesn't require the match to be the most
+        recent call.
+
+        Args:
+            method: Method name to check.
+            **kwargs: Expected keyword arguments (partial match).
+
+        Raises:
+            AssertionError: If no call matches the expected kwargs.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.scan_bytes(b"first", filename="a.txt")
+            >>> client.scan_bytes(b"second", filename="b.txt")
+            >>> client.scan_bytes(b"third", filename="c.txt")
+            >>> client.assert_any_call("scan_bytes", filename="b.txt")  # Passes
+            >>> client.assert_any_call("scan_bytes", filename="z.txt")  # Fails
+        """
+        matching = [c for c in self._calls if c.method == method]
+        if not matching:
+            raise AssertionError(f"Method '{method}' was never called")
+
+        for call in matching:
+            if all(call.kwargs.get(k) == v for k, v in kwargs.items()):
+                return  # Found a match
+
+        raise AssertionError(
+            f"No call to '{method}' matched kwargs {kwargs!r}. "
+            f"Actual calls: {[c.kwargs for c in matching]}"
+        )
+
+    def assert_called_in_order(self, methods: list[str]) -> None:
+        """
+        Assert that methods were called in the specified order.
+
+        Checks that the call history contains the methods in the given order.
+        Other calls may appear between the specified methods.
+
+        Args:
+            methods: List of method names in expected order.
+
+        Raises:
+            AssertionError: If the methods weren't called in order.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.options("avscan")
+            >>> client.scan_bytes(b"test")
+            >>> client.assert_called_in_order(["options", "scan_bytes"])  # Passes
+            >>> client.assert_called_in_order(["scan_bytes", "options"])  # Fails
+        """
+        if not methods:
+            return
+
+        actual_methods = [c.method for c in self._calls]
+        method_index = 0
+
+        for actual in actual_methods:
+            if method_index < len(methods) and actual == methods[method_index]:
+                method_index += 1
+
+        if method_index != len(methods):
+            missing = methods[method_index:]
+            raise AssertionError(
+                f"Methods not called in expected order. "
+                f"Expected: {methods}, Actual order: {actual_methods}. "
+                f"Missing or out of order: {missing}"
+            )
+
+    def assert_scanned_file(self, filepath: str) -> None:
+        """
+        Assert that a specific file path was scanned.
+
+        Checks if scan_file() was called with the given filepath.
+
+        Args:
+            filepath: The file path that should have been scanned.
+
+        Raises:
+            AssertionError: If the file was not scanned.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.scan_file("/path/to/file.txt")
+            >>> client.assert_scanned_file("/path/to/file.txt")  # Passes
+            >>> client.assert_scanned_file("/other/file.txt")  # Fails
+        """
+        for call in self._calls:
+            if call.method == "scan_file" and call.kwargs.get("filepath") == filepath:
+                return
+        raise AssertionError(f"File '{filepath}' was not scanned")
+
+    def assert_scanned_with_filename(self, filename: str) -> None:
+        """
+        Assert that a scan was made with a specific filename argument.
+
+        Checks scan_bytes and scan_stream calls for the given filename.
+        Note: This checks the filename argument, not the filepath in scan_file().
+
+        Args:
+            filename: The filename argument that should have been used.
+
+        Raises:
+            AssertionError: If no scan was made with that filename.
+
+        Example:
+            >>> client = MockIcapClient()
+            >>> client.scan_bytes(b"content", filename="report.pdf")
+            >>> client.assert_scanned_with_filename("report.pdf")  # Passes
+            >>> client.assert_scanned_with_filename("other.pdf")  # Fails
+        """
+        for call in self._calls:
+            if call.method in ("scan_bytes", "scan_stream"):
+                if call.kwargs.get("filename") == filename:
+                    return
+        raise AssertionError(f"No scan was made with filename '{filename}'")
+
     # === IcapClient Interface ===
 
     @property
@@ -1089,56 +1556,64 @@ class MockIcapClient:
         self.disconnect()
         return False
 
-    def _record_call(self, method: str, **kwargs: Any) -> None:
-        """Record a method call."""
-        self._calls.append(
-            MockCall(
-                method=method,
-                timestamp=time.time(),
-                kwargs=kwargs,
-            )
+    def _record_call(self, method: str, **kwargs: Any) -> MockCall:
+        """
+        Record a method call and return the MockCall object.
+
+        Args:
+            method: Name of the method being called.
+            **kwargs: Arguments passed to the method.
+
+        Returns:
+            The newly created MockCall object (also appended to self._calls).
+        """
+        call = MockCall(
+            method=method,
+            timestamp=time.time(),
+            kwargs=kwargs,
+            call_index=len(self._calls),
         )
+        self._calls.append(call)
+        return call
 
-    def _get_response(self, response_or_exception: IcapResponse | Exception) -> IcapResponse:
-        """Return response or raise exception."""
-        if isinstance(response_or_exception, Exception):
-            raise response_or_exception
-        return response_or_exception
-
-    def _get_method_response(self, method: str) -> IcapResponse:
+    def _get_response_with_metadata(
+        self, method: str, call_kwargs: dict[str, Any]
+    ) -> tuple[IcapResponse | Exception, str]:
         """
-        Get the next response for the given method.
+        Get the next response and metadata for the given method.
 
-        Resolution order:
-        1. If a matcher matches the call kwargs → return matcher's response
-        2. If callback is set → invoke callback with last call's kwargs
-        3. If queue has items → pop and return/raise
-        4. If queue is empty AND queue_active is True → raise MockResponseExhaustedError
-        5. Otherwise → use default response
+        This method determines the response and tracks how it was resolved
+        (matcher, callback, queue, or default).
+
+        Args:
+            method: The ICAP method name ("options", "respmod", "reqmod").
+            call_kwargs: The arguments passed to the method call.
+
+        Returns:
+            A tuple of (response_or_exception, matched_by) where:
+            - response_or_exception: The IcapResponse or Exception to return/raise
+            - matched_by: String indicating resolution source: "matcher", "callback",
+              "queue", or "default"
+
+        Raises:
+            MockResponseExhaustedError: When queue is exhausted and queue_active is True.
         """
-        # Get kwargs from the last recorded call for matching
-        last_call = self._calls[-1] if self._calls else None
-        call_kwargs = last_call.kwargs if last_call is not None else {}
-
         # Check matchers first (highest priority)
         for matcher in self._matchers:
             if not matcher.is_exhausted() and matcher.matches(**call_kwargs):
-                return matcher.consume()
+                return matcher.consume(), "matcher"
 
         # Check for callback
         callback = self._callbacks.get(method)
         if callback is not None:
-            if last_call is not None:
-                return callback(**last_call.kwargs)
-            # Fallback if no call recorded (shouldn't happen in normal use)
-            return callback(data=b"", service="avscan", filename=None)
+            return callback(**call_kwargs), "callback"
 
         queue = self._response_queues[method]
 
         if queue:
             # Queue has items - pop the next one
             response_or_exception = queue.popleft()
-            return self._get_response(response_or_exception)
+            return response_or_exception, "queue"
 
         if self._queue_active[method]:
             # Queue was active but is now empty - all responses consumed
@@ -1148,17 +1623,55 @@ class MockIcapClient:
             )
 
         # Use default response for this method
-        default_responses = {
+        default_responses: dict[str, IcapResponse | Exception] = {
             "options": self._options_response,
             "respmod": self._respmod_response,
             "reqmod": self._reqmod_response,
         }
-        return self._get_response(default_responses[method])
+        return default_responses[method], "default"
+
+    def _execute_call(self, call: MockCall, response_method: str) -> IcapResponse:
+        """
+        Execute a recorded call and update it with response metadata.
+
+        This method:
+        1. Resolves the response using _get_response_with_metadata
+        2. Updates the MockCall with response/exception/matched_by
+        3. Returns the response or raises the exception
+
+        Args:
+            call: The MockCall object to update.
+            response_method: The method key for response lookup ("options", "respmod", "reqmod").
+
+        Returns:
+            The IcapResponse.
+
+        Raises:
+            Exception: If the response was configured as an exception.
+        """
+        try:
+            response_or_exception, matched_by = self._get_response_with_metadata(
+                response_method, call.kwargs
+            )
+            call.matched_by = matched_by
+
+            if isinstance(response_or_exception, Exception):
+                call.exception = response_or_exception
+                raise response_or_exception
+
+            call.response = response_or_exception
+            return response_or_exception
+
+        except MockResponseExhaustedError:
+            # MockResponseExhaustedError is a configuration error, not a mock response
+            # Still record that it happened
+            call.matched_by = "queue"
+            raise
 
     def options(self, service: str) -> IcapResponse:
         """Send OPTIONS request (mocked)."""
-        self._record_call("options", service=service)
-        return self._get_method_response("options")
+        call = self._record_call("options", service=service)
+        return self._execute_call(call, "options")
 
     def respmod(
         self,
@@ -1169,7 +1682,7 @@ class MockIcapClient:
         preview: int | None = None,
     ) -> IcapResponse:
         """Send RESPMOD request (mocked)."""
-        self._record_call(
+        call = self._record_call(
             "respmod",
             service=service,
             http_request=http_request,
@@ -1177,7 +1690,7 @@ class MockIcapClient:
             headers=headers,
             preview=preview,
         )
-        return self._get_method_response("respmod")
+        return self._execute_call(call, "respmod")
 
     def reqmod(
         self,
@@ -1187,14 +1700,14 @@ class MockIcapClient:
         headers: dict[str, str] | None = None,
     ) -> IcapResponse:
         """Send REQMOD request (mocked)."""
-        self._record_call(
+        call = self._record_call(
             "reqmod",
             service=service,
             http_request=http_request,
             http_body=http_body,
             headers=headers,
         )
-        return self._get_method_response("reqmod")
+        return self._execute_call(call, "reqmod")
 
     def scan_bytes(
         self,
@@ -1203,13 +1716,13 @@ class MockIcapClient:
         filename: str | None = None,
     ) -> IcapResponse:
         """Scan bytes content (mocked)."""
-        self._record_call(
+        call = self._record_call(
             "scan_bytes",
             data=data,
             service=service,
             filename=filename,
         )
-        return self._get_method_response("respmod")
+        return self._execute_call(call, "respmod")
 
     def scan_file(
         self,
@@ -1222,13 +1735,13 @@ class MockIcapClient:
             raise FileNotFoundError(f"File not found: {filepath}")
 
         data = filepath.read_bytes()
-        self._record_call(
+        call = self._record_call(
             "scan_file",
             filepath=str(filepath),
             service=service,
             data=data,
         )
-        return self._get_method_response("respmod")
+        return self._execute_call(call, "respmod")
 
     def scan_stream(
         self,
@@ -1239,14 +1752,14 @@ class MockIcapClient:
     ) -> IcapResponse:
         """Scan a stream (mocked - actually reads the stream)."""
         data = stream.read()
-        self._record_call(
+        call = self._record_call(
             "scan_stream",
             data=data,
             service=service,
             filename=filename,
             chunk_size=chunk_size,
         )
-        return self._get_method_response("respmod")
+        return self._execute_call(call, "respmod")
 
 
 class MockAsyncIcapClient(MockIcapClient):
@@ -1295,39 +1808,102 @@ class MockAsyncIcapClient(MockIcapClient):
         IcapResponseBuilder: Fluent builder for creating test responses.
     """
 
-    async def _get_method_response_async(self, method: str) -> IcapResponse:
+    async def _get_response_with_metadata_async(
+        self, method: str, call_kwargs: dict[str, Any]
+    ) -> tuple[IcapResponse | Exception, str]:
         """
-        Get the next response for the given method (async version).
+        Get the next response and metadata for the given method (async version).
 
-        Resolution order:
-        1. If a matcher matches the call kwargs → return matcher's response
-        2. If callback is set (sync or async) → invoke callback
-        3. Fall back to sync implementation (queue → default)
+        This method determines the response and tracks how it was resolved
+        (matcher, callback, queue, or default). Supports both sync and async callbacks.
+
+        Args:
+            method: The ICAP method name ("options", "respmod", "reqmod").
+            call_kwargs: The arguments passed to the method call.
+
+        Returns:
+            A tuple of (response_or_exception, matched_by) where:
+            - response_or_exception: The IcapResponse or Exception to return/raise
+            - matched_by: String indicating resolution source: "matcher", "callback",
+              "queue", or "default"
+
+        Raises:
+            MockResponseExhaustedError: When queue is exhausted and queue_active is True.
         """
-        # Get kwargs from the last recorded call for matching
-        last_call = self._calls[-1] if self._calls else None
-        call_kwargs = last_call.kwargs if last_call is not None else {}
-
         # Check matchers first (highest priority)
         for matcher in self._matchers:
             if not matcher.is_exhausted() and matcher.matches(**call_kwargs):
-                return matcher.consume()
+                return matcher.consume(), "matcher"
 
         # Check for callback
         callback = self._callbacks.get(method)
         if callback is not None:
-            kwargs = (
-                call_kwargs if call_kwargs else {"data": b"", "service": "avscan", "filename": None}
-            )
-
             # Check if callback is async and await if needed
             if inspect.iscoroutinefunction(callback):
-                return await callback(**kwargs)
+                result = await callback(**call_kwargs)
             else:
-                return callback(**kwargs)
+                result = callback(**call_kwargs)
+            return result, "callback"
 
-        # Fall back to sync implementation for queue/default cases
-        return super()._get_method_response(method)
+        queue = self._response_queues[method]
+
+        if queue:
+            # Queue has items - pop the next one
+            response_or_exception = queue.popleft()
+            return response_or_exception, "queue"
+
+        if self._queue_active[method]:
+            # Queue was active but is now empty - all responses consumed
+            raise MockResponseExhaustedError(
+                f"All queued {method} responses have been consumed. "
+                f"Configure more responses with on_{method}() or use reset_responses()."
+            )
+
+        # Use default response for this method
+        default_responses: dict[str, IcapResponse | Exception] = {
+            "options": self._options_response,
+            "respmod": self._respmod_response,
+            "reqmod": self._reqmod_response,
+        }
+        return default_responses[method], "default"
+
+    async def _execute_call_async(self, call: MockCall, response_method: str) -> IcapResponse:
+        """
+        Execute a recorded call and update it with response metadata (async version).
+
+        This method:
+        1. Resolves the response using _get_response_with_metadata_async
+        2. Updates the MockCall with response/exception/matched_by
+        3. Returns the response or raises the exception
+
+        Args:
+            call: The MockCall object to update.
+            response_method: The method key for response lookup ("options", "respmod", "reqmod").
+
+        Returns:
+            The IcapResponse.
+
+        Raises:
+            Exception: If the response was configured as an exception.
+        """
+        try:
+            response_or_exception, matched_by = await self._get_response_with_metadata_async(
+                response_method, call.kwargs
+            )
+            call.matched_by = matched_by
+
+            if isinstance(response_or_exception, Exception):
+                call.exception = response_or_exception
+                raise response_or_exception
+
+            call.response = response_or_exception
+            return response_or_exception
+
+        except MockResponseExhaustedError:
+            # MockResponseExhaustedError is a configuration error, not a mock response
+            # Still record that it happened
+            call.matched_by = "queue"
+            raise
 
     async def connect(self) -> None:  # type: ignore[override]
         """Simulate async connection (no-op)."""
@@ -1347,8 +1923,8 @@ class MockAsyncIcapClient(MockIcapClient):
 
     async def options(self, service: str) -> IcapResponse:  # type: ignore[override]
         """Send OPTIONS request (mocked)."""
-        self._record_call("options", service=service)
-        return await self._get_method_response_async("options")
+        call = self._record_call("options", service=service)
+        return await self._execute_call_async(call, "options")
 
     async def respmod(  # type: ignore[override]
         self,
@@ -1359,7 +1935,7 @@ class MockAsyncIcapClient(MockIcapClient):
         preview: int | None = None,
     ) -> IcapResponse:
         """Send RESPMOD request (mocked)."""
-        self._record_call(
+        call = self._record_call(
             "respmod",
             service=service,
             http_request=http_request,
@@ -1367,7 +1943,7 @@ class MockAsyncIcapClient(MockIcapClient):
             headers=headers,
             preview=preview,
         )
-        return await self._get_method_response_async("respmod")
+        return await self._execute_call_async(call, "respmod")
 
     async def reqmod(  # type: ignore[override]
         self,
@@ -1377,14 +1953,14 @@ class MockAsyncIcapClient(MockIcapClient):
         headers: dict[str, str] | None = None,
     ) -> IcapResponse:
         """Send REQMOD request (mocked)."""
-        self._record_call(
+        call = self._record_call(
             "reqmod",
             service=service,
             http_request=http_request,
             http_body=http_body,
             headers=headers,
         )
-        return await self._get_method_response_async("reqmod")
+        return await self._execute_call_async(call, "reqmod")
 
     async def scan_bytes(  # type: ignore[override]
         self,
@@ -1393,13 +1969,13 @@ class MockAsyncIcapClient(MockIcapClient):
         filename: str | None = None,
     ) -> IcapResponse:
         """Scan bytes content (mocked)."""
-        self._record_call(
+        call = self._record_call(
             "scan_bytes",
             data=data,
             service=service,
             filename=filename,
         )
-        return await self._get_method_response_async("respmod")
+        return await self._execute_call_async(call, "respmod")
 
     async def scan_file(  # type: ignore[override]
         self,
@@ -1412,13 +1988,13 @@ class MockAsyncIcapClient(MockIcapClient):
             raise FileNotFoundError(f"File not found: {filepath}")
 
         data = filepath.read_bytes()
-        self._record_call(
+        call = self._record_call(
             "scan_file",
             filepath=str(filepath),
             service=service,
             data=data,
         )
-        return await self._get_method_response_async("respmod")
+        return await self._execute_call_async(call, "respmod")
 
     async def scan_stream(  # type: ignore[override]
         self,
@@ -1428,10 +2004,10 @@ class MockAsyncIcapClient(MockIcapClient):
     ) -> IcapResponse:
         """Scan a stream (mocked)."""
         data = stream.read()
-        self._record_call(
+        call = self._record_call(
             "scan_stream",
             data=data,
             service=service,
             filename=filename,
         )
-        return await self._get_method_response_async("respmod")
+        return await self._execute_call_async(call, "respmod")
