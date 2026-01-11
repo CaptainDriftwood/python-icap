@@ -103,16 +103,14 @@ class IcapResponse:
         Returns:
             IcapResponse object
         """
-        # Split headers and body
         parts = data.split(b"\r\n\r\n", 1)
         header_section = parts[0].decode("utf-8", errors="ignore")
         body = parts[1] if len(parts) > 1 else b""
 
-        # Parse status line
         lines = header_section.split("\r\n")
         status_line = lines[0]
 
-        # Parse status line: ICAP/1.0 200 OK
+        # Expected format: ICAP/1.0 200 OK
         status_parts = status_line.split(" ", 2)
         if len(status_parts) < 3:
             raise ValueError(f"Invalid ICAP status line: {status_line}")
@@ -120,7 +118,6 @@ class IcapResponse:
         status_code = int(status_parts[1])
         status_message = status_parts[2]
 
-        # Parse headers
         headers = {}
         for line in lines[1:]:
             if ":" in line:

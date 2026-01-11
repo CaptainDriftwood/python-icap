@@ -411,7 +411,6 @@ class MockCall:
 
     MockCall instances are created automatically when methods are called on
     the mock client and stored in the `calls` list for later inspection.
-    Enhanced in Phase 4 to track responses, exceptions, and match source.
 
     Attributes:
         method: Name of the method that was called (e.g., "scan_bytes", "options").
@@ -484,7 +483,7 @@ class MockCall:
     timestamp: float
     kwargs: dict[str, Any] = field(default_factory=dict)
 
-    # Phase 4 additions: track response/exception and how it was determined
+    # Track response/exception and how it was determined
     response: IcapResponse | None = None
     exception: Exception | None = None
     matched_by: str | None = None  # "matcher", "callback", "queue", or "default"
@@ -765,7 +764,7 @@ class MockIcapClient:
         self._strict = strict
         self._calls: list[MockCall] = []
 
-        # Response queues for sequential responses (Phase 1)
+        # Response queues for sequential responses
         self._response_queues: dict[str, deque[IcapResponse | Exception]] = {
             "options": deque(),
             "respmod": deque(),
@@ -780,14 +779,14 @@ class MockIcapClient:
             "reqmod": False,
         }
 
-        # Track initial queue sizes for strict mode validation (Phase 5)
+        # Track initial queue sizes for strict mode validation
         self._initial_queue_sizes: dict[str, int] = {
             "options": 0,
             "respmod": 0,
             "reqmod": 0,
         }
 
-        # Track callback usage for strict mode validation (Phase 5)
+        # Track callback usage for strict mode validation
         self._callback_used: dict[str, bool] = {
             "options": False,
             "respmod": False,
@@ -799,14 +798,14 @@ class MockIcapClient:
         self._respmod_response: IcapResponse | Exception = IcapResponseBuilder().clean().build()
         self._reqmod_response: IcapResponse | Exception = IcapResponseBuilder().clean().build()
 
-        # Callbacks for dynamic response generation (Phase 2)
+        # Callbacks for dynamic response generation
         self._callbacks: dict[str, ResponseCallback | AsyncResponseCallback | None] = {
             "options": None,
             "respmod": None,
             "reqmod": None,
         }
 
-        # Content matchers for declarative conditional responses (Phase 3)
+        # Content matchers for declarative conditional responses
         self._matchers: list[ResponseMatcher] = []
 
     # === Configuration API ===
@@ -1103,24 +1102,19 @@ class MockIcapClient:
         See Also:
             reset_calls: Clear call history without resetting responses.
         """
-        # Clear all queues
         for queue in self._response_queues.values():
             queue.clear()
 
-        # Reset queue active flags
         for method in self._queue_active:
             self._queue_active[method] = False
 
-        # Reset defaults
         self._options_response = IcapResponseBuilder().options().build()
         self._respmod_response = IcapResponseBuilder().clean().build()
         self._reqmod_response = IcapResponseBuilder().clean().build()
 
-        # Clear callbacks
         for method in self._callbacks:
             self._callbacks[method] = None
 
-        # Clear matchers
         self._matchers.clear()
 
     def when(
@@ -1684,7 +1678,6 @@ class MockIcapClient:
         """
         errors: list[str] = []
 
-        # Check for unconsumed queued responses
         for method, queue in self._response_queues.items():
             initial_size = self._initial_queue_sizes[method]
             remaining = len(queue)
@@ -1695,12 +1688,10 @@ class MockIcapClient:
                     f"(consumed {consumed})"
                 )
 
-        # Check for unused callbacks
         for method, callback in self._callbacks.items():
             if callback is not None and not self._callback_used[method]:
                 errors.append(f"{method}: callback was configured but never invoked")
 
-        # Check for unused matchers
         for i, matcher in enumerate(self._matchers):
             if matcher._match_count == 0:
                 criteria = []
@@ -1803,7 +1794,6 @@ class MockIcapClient:
             if not matcher.is_exhausted() and matcher.matches(**call_kwargs):
                 return matcher.consume(), "matcher"
 
-        # Check for callback
         callback = self._callbacks.get(method)
         if callback is not None:
             self._callback_used[method] = True
@@ -1812,18 +1802,15 @@ class MockIcapClient:
         queue = self._response_queues[method]
 
         if queue:
-            # Queue has items - pop the next one
             response_or_exception = queue.popleft()
             return response_or_exception, "queue"
 
         if self._queue_active[method]:
-            # Queue was active but is now empty - all responses consumed
             raise MockResponseExhaustedError(
                 f"All queued {method} responses have been consumed. "
                 f"Configure more responses with on_{method}() or use reset_responses()."
             )
 
-        # Use default response for this method
         default_responses: dict[str, IcapResponse | Exception] = {
             "options": self._options_response,
             "respmod": self._respmod_response,
@@ -2036,7 +2023,6 @@ class MockAsyncIcapClient(MockIcapClient):
             if not matcher.is_exhausted() and matcher.matches(**call_kwargs):
                 return matcher.consume(), "matcher"
 
-        # Check for callback
         callback = self._callbacks.get(method)
         if callback is not None:
             self._callback_used[method] = True
@@ -2050,18 +2036,15 @@ class MockAsyncIcapClient(MockIcapClient):
         queue = self._response_queues[method]
 
         if queue:
-            # Queue has items - pop the next one
             response_or_exception = queue.popleft()
             return response_or_exception, "queue"
 
         if self._queue_active[method]:
-            # Queue was active but is now empty - all responses consumed
             raise MockResponseExhaustedError(
                 f"All queued {method} responses have been consumed. "
                 f"Configure more responses with on_{method}() or use reset_responses()."
             )
 
-        # Use default response for this method
         default_responses: dict[str, IcapResponse | Exception] = {
             "options": self._options_response,
             "respmod": self._respmod_response,

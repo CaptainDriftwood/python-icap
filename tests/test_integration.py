@@ -33,6 +33,7 @@ from pycap import IcapClient
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 def test_options_request(icap_service):
     """Test OPTIONS request against real ICAP server."""
     with IcapClient(icap_service["host"], icap_service["port"]) as client:
@@ -42,6 +43,7 @@ def test_options_request(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 def test_scan_clean_content(icap_service):
     """Test scanning clean content."""
     with IcapClient(icap_service["host"], icap_service["port"]) as client:
@@ -52,6 +54,7 @@ def test_scan_clean_content(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 def test_scan_eicar_virus(icap_service):
     """Test detection of EICAR test virus."""
     with IcapClient(icap_service["host"], icap_service["port"]) as client:
@@ -63,6 +66,7 @@ def test_scan_eicar_virus(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 def test_scan_file_path_str(icap_service, tmp_path):
     """Test scanning a file using string path."""
     # Create a temporary file
@@ -75,6 +79,7 @@ def test_scan_file_path_str(icap_service, tmp_path):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 def test_scan_file_path_object(icap_service, tmp_path):
     """Test scanning a file using Path object."""
     # Create a temporary file
@@ -87,6 +92,7 @@ def test_scan_file_path_object(icap_service, tmp_path):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 def test_scan_stream(icap_service, tmp_path):
     """Test scanning a file-like object."""
     # Create a temporary file
@@ -100,6 +106,7 @@ def test_scan_stream(icap_service, tmp_path):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 def test_respmod_with_preview_small_content(icap_service):
     """Test RESPMOD with preview mode where content fits in preview (ieof case)."""
     with IcapClient(icap_service["host"], icap_service["port"]) as client:
@@ -124,6 +131,7 @@ def test_respmod_with_preview_small_content(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 def test_respmod_with_preview_large_content(icap_service):
     """Test RESPMOD with preview mode where content exceeds preview size."""
     with IcapClient(icap_service["host"], icap_service["port"]) as client:
@@ -148,6 +156,7 @@ def test_respmod_with_preview_large_content(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 def test_respmod_with_preview_eicar(icap_service):
     """Test that preview mode correctly detects EICAR virus."""
     with IcapClient(icap_service["host"], icap_service["port"]) as client:
@@ -169,3 +178,75 @@ def test_respmod_with_preview_eicar(icap_service):
         )
         # Virus should be detected
         assert response.status_code in (200, 403, 500)
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+def test_reqmod_basic(icap_service):
+    """Test basic REQMOD request without body."""
+    with IcapClient(icap_service["host"], icap_service["port"]) as client:
+        http_request = b"GET /clean.txt HTTP/1.1\r\nHost: example.com\r\n\r\n"
+
+        response = client.reqmod(icap_service["service"], http_request)
+        assert response.is_success
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+def test_reqmod_with_body(icap_service):
+    """Test REQMOD with HTTP request body."""
+    with IcapClient(icap_service["host"], icap_service["port"]) as client:
+        http_request = (
+            b"POST /upload HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Content-Type: text/plain\r\n"
+            b"Content-Length: 18\r\n"
+            b"\r\n"
+        )
+        http_body = b"Clean file content"
+
+        response = client.reqmod(icap_service["service"], http_request, http_body=http_body)
+        assert response.is_success
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+def test_reqmod_with_eicar(icap_service):
+    """Test REQMOD detects EICAR in request body."""
+    with IcapClient(icap_service["host"], icap_service["port"]) as client:
+        http_request = (
+            b"POST /upload HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Content-Type: application/octet-stream\r\n"
+            b"Content-Length: " + str(len(EICAR_TEST_STRING)).encode() + b"\r\n"
+            b"\r\n"
+        )
+
+        response = client.reqmod(icap_service["service"], http_request, http_body=EICAR_TEST_STRING)
+        # Virus should be detected
+        assert response.status_code in (200, 403, 500)
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+def test_connection_reuse(icap_service):
+    """Test that a single client can handle multiple sequential requests."""
+    with IcapClient(icap_service["host"], icap_service["port"]) as client:
+        # First request - OPTIONS
+        response1 = client.options(icap_service["service"])
+        assert response1.is_success
+
+        # Second request - scan clean content
+        response2 = client.scan_bytes(b"Clean content", service=icap_service["service"])
+        assert response2.is_success
+
+        # Third request - scan EICAR
+        response3 = client.scan_bytes(EICAR_TEST_STRING, service=icap_service["service"])
+        assert response3.status_code in (200, 403, 500)
+
+        # Fourth request - another OPTIONS
+        response4 = client.options(icap_service["service"])
+        assert response4.is_success
+
+        # Verify client stayed connected throughout
+        assert client.is_connected

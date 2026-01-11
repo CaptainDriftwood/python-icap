@@ -664,9 +664,6 @@ async def test_async_response_sequence_exhausted():
         await client.scan_bytes(b"file3")
 
 
-# === Phase 2: Callback Tests ===
-
-
 def test_callback_basic():
     """Callback is invoked instead of returning default response."""
 
@@ -889,9 +886,6 @@ async def test_async_callback_receives_kwargs():
     assert received["data"] == b"async data"
     assert received["service"] == "async_scan"
     assert received["filename"] == "async.txt"
-
-
-# === Phase 3: Content Matcher Tests ===
 
 
 def test_matcher_filename_exact():
@@ -1164,9 +1158,6 @@ async def test_async_matcher_times_limit():
 
     response2 = await client.scan_bytes(b"bad again")
     assert response2.is_no_modification  # Matcher exhausted
-
-
-# === Phase 4: Enhanced Call History Tests ===
 
 
 # --- MockCall Enhanced Fields Tests ---
@@ -1715,9 +1706,6 @@ def test_assert_scanned_with_filename_fails():
         client.assert_scanned_with_filename("expected.txt")
 
 
-# --- Async Phase 4 Tests ---
-
-
 @pytest.mark.asyncio
 async def test_async_mock_call_response_field():
     """Async MockCall.response is populated after successful call."""
@@ -1795,9 +1783,6 @@ async def test_async_enhanced_assertions():
     client.assert_called_with("scan_bytes", filename="file.txt")
     client.assert_any_call("scan_bytes", data=b"test")
     client.assert_called_in_order(["options", "scan_bytes"])
-
-
-# === Phase 5: Strict Mode Tests ===
 
 
 def test_strict_parameter_defaults_to_false():
@@ -1995,9 +1980,6 @@ async def test_async_assert_all_responses_used_callback_unused():
         client.assert_all_responses_used()
 
     assert "respmod: callback was configured but never invoked" in str(exc_info.value)
-
-
-# === Phase 5: Marker-Based Strict Mode Tests ===
 
 
 @pytest.mark.icap_mock(strict=True)

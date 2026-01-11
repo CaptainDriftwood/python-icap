@@ -262,7 +262,6 @@ class IcapClient(IcapProtocol):
             f"RESPMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
         )
 
-        # Split HTTP response into headers and body
         if b"\r\n\r\n" in http_response:
             http_res_headers, http_res_body = http_response.split(b"\r\n\r\n", 1)
             http_res_headers += b"\r\n\r\n"  # Include the separator
@@ -518,17 +517,14 @@ class IcapClient(IcapProtocol):
         try:
             self._socket.sendall(icap_request)
 
-            # Stream the body in chunks
             total_bytes = 0
             for chunk in self._iter_chunks(stream, chunk_size):
-                # Send chunk size in hex followed by CRLF
                 chunk_header = f"{len(chunk):X}\r\n".encode()
                 self._socket.sendall(chunk_header)
                 self._socket.sendall(chunk)
                 self._socket.sendall(b"\r\n")
                 total_bytes += len(chunk)
 
-            # Send final zero-length chunk to indicate end
             self._socket.sendall(b"0\r\n\r\n")
             logger.debug(f"Sent {total_bytes} bytes in chunked encoding")
 

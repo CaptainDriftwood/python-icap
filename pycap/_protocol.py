@@ -10,7 +10,6 @@ from typing import Dict, Optional
 class IcapProtocol:
     """Base class with shared ICAP protocol constants and utilities."""
 
-    # Protocol constants
     DEFAULT_PORT: int = 1344
     CRLF: str = "\r\n"
     ICAP_VERSION: str = "ICAP/1.0"

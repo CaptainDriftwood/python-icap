@@ -57,6 +57,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "docker: marks tests requiring Docker (deselect with '-m \"not docker\"')",
     "ssl: marks tests requiring SSL/TLS certificates (run: just generate-certs)",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "icap(host, port, timeout, ssl_context): configure ICAP client for testing",

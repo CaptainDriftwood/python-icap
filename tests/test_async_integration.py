@@ -17,6 +17,7 @@ EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 async def test_async_options(icap_service):
     """Test async OPTIONS request."""
     async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
@@ -26,6 +27,7 @@ async def test_async_options(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 async def test_async_scan_clean(icap_service):
     """Test scanning clean content."""
     async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
@@ -36,6 +38,7 @@ async def test_async_scan_clean(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 async def test_async_scan_eicar(icap_service):
     """Test EICAR virus detection."""
     async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
@@ -47,6 +50,7 @@ async def test_async_scan_eicar(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 async def test_concurrent_scans_mixed_content(icap_service):
     """Test multiple concurrent scans with mixed clean/infected content."""
     host = icap_service["host"]
@@ -81,6 +85,7 @@ async def test_concurrent_scans_mixed_content(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 async def test_concurrent_many_connections(icap_service):
     """Test many concurrent connections."""
     host = icap_service["host"]
@@ -103,6 +108,7 @@ async def test_concurrent_many_connections(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 async def test_async_throughput_comparison(icap_service):
     """Compare async concurrent vs sequential performance."""
     host = icap_service["host"]
@@ -137,6 +143,7 @@ async def test_async_throughput_comparison(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 async def test_async_scan_file(icap_service, tmp_path):
     """Test scanning an actual file."""
     # Create test file
@@ -149,6 +156,7 @@ async def test_async_scan_file(icap_service, tmp_path):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 async def test_async_scan_file_eicar(icap_service, tmp_path):
     """Test scanning an EICAR file."""
     # Create test file with EICAR
@@ -158,6 +166,32 @@ async def test_async_scan_file_eicar(icap_service, tmp_path):
     async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
         response = await client.scan_file(test_file, service=icap_service["service"])
         assert not response.is_no_modification
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+async def test_async_scan_stream(icap_service, tmp_path):
+    """Test async scanning a file-like stream."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_bytes(b"Clean stream content for testing")
+
+    async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
+        with open(test_file, "rb") as f:
+            response = await client.scan_stream(f, service=icap_service["service"])
+            assert response.is_no_modification
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+async def test_async_scan_stream_eicar(icap_service, tmp_path):
+    """Test async scanning a stream with EICAR."""
+    test_file = tmp_path / "eicar.com"
+    test_file.write_bytes(EICAR)
+
+    async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
+        with open(test_file, "rb") as f:
+            response = await client.scan_stream(f, service=icap_service["service"])
+            assert not response.is_no_modification
 
 
 async def test_async_error_handling_wrong_port(mocker):
@@ -189,6 +223,7 @@ async def test_async_error_handling_wrong_host(mocker):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
 async def test_async_respmod_direct(icap_service):
     """Test direct RESPMOD call."""
     async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
@@ -201,6 +236,67 @@ async def test_async_respmod_direct(icap_service):
 
 
 @pytest.mark.integration
+@pytest.mark.docker
+async def test_async_respmod_with_preview_small(icap_service):
+    """Test async RESPMOD with preview where content fits (ieof case)."""
+    async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
+        content = b"Small clean content"
+        http_request = b"GET /test.txt HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        http_response = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/plain\r\n"
+            b"Content-Length: " + str(len(content)).encode() + b"\r\n"
+            b"\r\n" + content
+        )
+
+        response = await client.respmod(
+            icap_service["service"], http_request, http_response, preview=1024
+        )
+        assert response.is_success
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+async def test_async_respmod_with_preview_large(icap_service):
+    """Test async RESPMOD with preview where content exceeds preview (100 Continue)."""
+    async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
+        content = b"A" * 2048  # 2KB content
+        http_request = b"GET /test.bin HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        http_response = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/octet-stream\r\n"
+            b"Content-Length: " + str(len(content)).encode() + b"\r\n"
+            b"\r\n" + content
+        )
+
+        response = await client.respmod(
+            icap_service["service"], http_request, http_response, preview=512
+        )
+        assert response.is_success
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+async def test_async_respmod_with_preview_eicar(icap_service):
+    """Test async RESPMOD with preview detects EICAR."""
+    async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
+        http_request = b"GET /eicar.com HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        http_response = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/octet-stream\r\n"
+            b"Content-Length: " + str(len(EICAR)).encode() + b"\r\n"
+            b"\r\n" + EICAR
+        )
+
+        response = await client.respmod(
+            icap_service["service"], http_request, http_response, preview=1024
+        )
+        # Virus should be detected
+        assert response.status_code in (200, 403, 500)
+
+
+@pytest.mark.integration
+@pytest.mark.docker
 async def test_async_context_manager_cleanup(icap_service):
     """Test that context manager properly cleans up on exception."""
     client = AsyncIcapClient(icap_service["host"], port=icap_service["port"])
@@ -217,3 +313,79 @@ async def test_async_context_manager_cleanup(icap_service):
 
     # Client should be disconnected after context manager exit
     assert not client.is_connected
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+async def test_async_reqmod_basic(icap_service):
+    """Test basic async REQMOD request without body."""
+    async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
+        http_request = b"GET /clean.txt HTTP/1.1\r\nHost: example.com\r\n\r\n"
+
+        response = await client.reqmod(icap_service["service"], http_request)
+        assert response.is_success
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+async def test_async_reqmod_with_body(icap_service):
+    """Test async REQMOD with HTTP request body."""
+    async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
+        http_request = (
+            b"POST /upload HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Content-Type: text/plain\r\n"
+            b"Content-Length: 18\r\n"
+            b"\r\n"
+        )
+        http_body = b"Clean file content"
+
+        response = await client.reqmod(icap_service["service"], http_request, http_body=http_body)
+        assert response.is_success
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+async def test_async_reqmod_with_eicar(icap_service):
+    """Test async REQMOD detects EICAR in request body."""
+    async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
+        http_request = (
+            b"POST /upload HTTP/1.1\r\n"
+            b"Host: example.com\r\n"
+            b"Content-Type: application/octet-stream\r\n"
+            b"Content-Length: " + str(len(EICAR)).encode() + b"\r\n"
+            b"\r\n"
+        )
+
+        response = await client.reqmod(icap_service["service"], http_request, http_body=EICAR)
+        # Virus should be detected
+        assert response.status_code in (200, 403, 500)
+
+
+@pytest.mark.integration
+@pytest.mark.docker
+async def test_async_connection_reuse(icap_service):
+    """Test that a single async client can handle multiple sequential requests."""
+    async with AsyncIcapClient(icap_service["host"], port=icap_service["port"]) as client:
+        # First request - OPTIONS
+        response1 = await client.options(icap_service["service"])
+        assert response1.is_success
+
+        # Second request - scan clean content
+        response2 = await client.scan_bytes(
+            b"Clean content", service=icap_service["service"], filename="clean.txt"
+        )
+        assert response2.is_no_modification
+
+        # Third request - scan EICAR
+        response3 = await client.scan_bytes(
+            EICAR, service=icap_service["service"], filename="eicar.com"
+        )
+        assert not response3.is_no_modification
+
+        # Fourth request - another OPTIONS
+        response4 = await client.options(icap_service["service"])
+        assert response4.is_success
+
+        # Verify client stayed connected throughout
+        assert client.is_connected

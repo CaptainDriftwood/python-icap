@@ -252,7 +252,6 @@ class AsyncIcapClient(IcapProtocol):
             f"RESPMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
         )
 
-        # Split HTTP response into headers and body
         if b"\r\n\r\n" in http_response:
             http_res_headers, http_res_body = http_response.split(b"\r\n\r\n", 1)
             http_res_headers += b"\r\n\r\n"
@@ -556,10 +555,8 @@ class AsyncIcapClient(IcapProtocol):
             self._writer.write(icap_request)
             await self._writer.drain()
 
-            # Stream the body in chunks
             total_bytes = 0
             async for chunk in self._iter_chunks(stream, chunk_size):
-                # Send chunk size in hex followed by CRLF
                 chunk_header = f"{len(chunk):X}\r\n".encode()
                 self._writer.write(chunk_header)
                 self._writer.write(chunk)
@@ -567,7 +564,6 @@ class AsyncIcapClient(IcapProtocol):
                 await self._writer.drain()
                 total_bytes += len(chunk)
 
-            # Send final zero-length chunk to indicate end
             self._writer.write(b"0\r\n\r\n")
             await self._writer.drain()
             logger.debug(f"Sent {total_bytes} bytes in chunked encoding")
