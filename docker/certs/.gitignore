@@ -1,0 +1,7 @@
+# Generated certificates - do not commit
+*.pem
+*.crt
+*.key
+*.csr
+*.srl
+*.cnf

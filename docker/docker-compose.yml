@@ -1,0 +1,28 @@
+services:
+  icap-server:
+    image: pycap-icap-server:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pycap-icap-server
+    ports:
+      - "1344:1344"
+      - "11344:11344"  # TLS port (requires: just generate-certs)
+    volumes:
+      - clamav-data:/var/lib/clamav
+      - ./certs:/etc/c-icap/certs:ro  # TLS certificates (optional)
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "1344"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    networks:
+      - icap-network
+
+volumes:
+  clamav-data:
+
+networks:
+  icap-network:
+    driver: bridge
