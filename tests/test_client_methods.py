@@ -5,7 +5,7 @@ These tests cover the internal methods and public API of both
 sync and async ICAP clients.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -180,22 +180,25 @@ def test_scan_stream_chunked_sends_chunks():
     assert mock_socket.sendall.call_count >= 3  # headers + chunks + terminator
 
 
-def test_scan_stream_chunked_not_connected():
+def test_scan_stream_chunked_not_connected(mocker):
     """Test _scan_stream_chunked auto-connects if needed."""
     from io import BytesIO
 
     client = IcapClient("localhost", 1344)
     client._connected = False
 
-    with patch.object(client, "connect"):
-        with patch.object(client, "_socket") as mock_socket:
-            mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
-            mock_socket.sendall = MagicMock()
-            client._socket = mock_socket
-            client._connected = True
+    mock_socket = mocker.MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+    mock_socket.sendall = mocker.MagicMock()
 
-            stream = BytesIO(b"test data")
-            client._scan_stream_chunked(stream, "avscan", None, chunk_size=100)
+    def set_connected():
+        client._socket = mock_socket
+        client._connected = True
+
+    mocker.patch.object(client, "connect", side_effect=set_connected)
+
+    stream = BytesIO(b"test data")
+    client._scan_stream_chunked(stream, "avscan", None, chunk_size=100)
 
 
 # =============================================================================
@@ -302,25 +305,24 @@ def test_reqmod_with_custom_headers():
     assert b"X-Custom: value" in sent_data
 
 
-def test_reqmod_auto_connects():
+def test_reqmod_auto_connects(mocker):
     """Test that reqmod auto-connects if not connected."""
     client = IcapClient("localhost", 1344)
     client._connected = False
 
-    with patch.object(client, "connect") as mock_connect:
-        mock_socket = MagicMock()
-        mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+    mock_socket = mocker.MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
 
-        def set_connected():
-            client._socket = mock_socket
-            client._connected = True
+    def set_connected():
+        client._socket = mock_socket
+        client._connected = True
 
-        mock_connect.side_effect = set_connected
+    mock_connect = mocker.patch.object(client, "connect", side_effect=set_connected)
 
-        response = client.reqmod("avscan", b"GET / HTTP/1.1\r\n\r\n")
+    response = client.reqmod("avscan", b"GET / HTTP/1.1\r\n\r\n")
 
-        mock_connect.assert_called_once()
-        assert response.status_code == 204
+    mock_connect.assert_called_once()
+    assert response.status_code == 204
 
 
 # =============================================================================
@@ -348,25 +350,24 @@ def test_options_basic():
     assert b"null-body=0" in sent_data
 
 
-def test_options_auto_connects():
+def test_options_auto_connects(mocker):
     """Test that options auto-connects if not connected."""
     client = IcapClient("localhost", 1344)
     client._connected = False
 
-    with patch.object(client, "connect") as mock_connect:
-        mock_socket = MagicMock()
-        mock_socket.recv.return_value = b"ICAP/1.0 200 OK\r\n\r\n"
+    mock_socket = mocker.MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 200 OK\r\n\r\n"
 
-        def set_connected():
-            client._socket = mock_socket
-            client._connected = True
+    def set_connected():
+        client._socket = mock_socket
+        client._connected = True
 
-        mock_connect.side_effect = set_connected
+    mock_connect = mocker.patch.object(client, "connect", side_effect=set_connected)
 
-        response = client.options("avscan")
+    response = client.options("avscan")
 
-        mock_connect.assert_called_once()
-        assert response.status_code == 200
+    mock_connect.assert_called_once()
+    assert response.status_code == 200
 
 
 # =============================================================================

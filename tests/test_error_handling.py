@@ -8,7 +8,7 @@ These tests verify that the client properly handles:
 - Chunked encoding edge cases
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -234,39 +234,37 @@ def test_read_chunked_body_split_across_reads():
     assert body == b"Hello"
 
 
-def test_reconnect_after_disconnect():
+def test_reconnect_after_disconnect(mocker):
     """Test that client can reconnect after disconnect."""
     client = IcapClient("localhost", 1344)
 
-    with patch("socket.socket") as mock_socket_class:
-        mock_socket = MagicMock()
-        mock_socket_class.return_value = mock_socket
+    mock_socket = mocker.MagicMock()
+    mocker.patch("socket.socket", return_value=mock_socket)
 
-        client.connect()
-        assert client.is_connected
+    client.connect()
+    assert client.is_connected
 
-        client.disconnect()
-        assert not client.is_connected
+    client.disconnect()
+    assert not client.is_connected
 
-        client.connect()
-        assert client.is_connected
+    client.connect()
+    assert client.is_connected
 
 
-def test_multiple_connect_calls_are_idempotent():
+def test_multiple_connect_calls_are_idempotent(mocker):
     """Test that calling connect() multiple times doesn't cause issues."""
     client = IcapClient("localhost", 1344)
 
-    with patch("socket.socket") as mock_socket_class:
-        mock_socket = MagicMock()
-        mock_socket_class.return_value = mock_socket
+    mock_socket = mocker.MagicMock()
+    mock_socket_class = mocker.patch("socket.socket", return_value=mock_socket)
 
-        client.connect()
-        assert client.is_connected
+    client.connect()
+    assert client.is_connected
 
-        client.connect()
-        assert client.is_connected
+    client.connect()
+    assert client.is_connected
 
-        assert mock_socket_class.call_count == 1
+    assert mock_socket_class.call_count == 1
 
 
 def test_disconnect_when_not_connected():
@@ -278,18 +276,17 @@ def test_disconnect_when_not_connected():
     assert not client.is_connected
 
 
-def test_disconnect_multiple_times():
+def test_disconnect_multiple_times(mocker):
     """Test that disconnect() can be called multiple times safely."""
     client = IcapClient("localhost", 1344)
 
-    with patch("socket.socket") as mock_socket_class:
-        mock_socket = MagicMock()
-        mock_socket_class.return_value = mock_socket
+    mock_socket = mocker.MagicMock()
+    mocker.patch("socket.socket", return_value=mock_socket)
 
-        client.connect()
-        client.disconnect()
-        client.disconnect()
-        assert not client.is_connected
+    client.connect()
+    client.disconnect()
+    client.disconnect()
+    assert not client.is_connected
 
 
 def test_scan_nonexistent_file_raises_file_not_found():
