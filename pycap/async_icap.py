@@ -407,24 +407,44 @@ class AsyncIcapClient(IcapProtocol):
         stream: BinaryIO,
         service: str = "avscan",
         filename: Optional[str] = None,
+        chunk_size: int = 0,
     ) -> IcapResponse:
         """
         Convenience method to scan a file-like object using RESPMOD.
 
-        Note: This reads the entire stream into memory. For large files,
-        consider using scan_file() instead.
+        By default, reads the entire stream into memory. For large files,
+        set chunk_size to stream in chunks without loading the entire file.
 
         Args:
             stream: File-like object (must support read())
             service: ICAP service name (default: "avscan")
             filename: Optional filename to use in HTTP headers
+            chunk_size: If > 0, stream data in chunks of this size (bytes).
+                       This uses chunked transfer encoding to avoid loading
+                       the entire file into memory.
 
         Returns:
             IcapResponse object
+
+        Example:
+            >>> async with AsyncIcapClient('localhost') as client:
+            ...     # Stream entire file into memory
+            ...     with open('file.txt', 'rb') as f:
+            ...         response = await client.scan_stream(f)
+            ...
+            ...     # Stream large file in chunks
+            ...     with open('large_file.bin', 'rb') as f:
+            ...         response = await client.scan_stream(f, chunk_size=65536)
         """
+        if chunk_size > 0:
+            return await self._scan_stream_chunked(stream, service, filename, chunk_size)
+
         # Read stream in executor to avoid blocking
         loop = asyncio.get_running_loop()
-        content = await loop.run_in_executor(None, stream.read)
+        try:
+            content = await loop.run_in_executor(None, stream.read)
+        except OSError as e:
+            raise IcapProtocolError(f"Failed to read from stream: {e}") from e
 
         logger.info(f"Scanning stream ({len(content)} bytes){f' - {filename}' if filename else ''}")
         return await self.scan_bytes(content, service=service, filename=filename)
@@ -468,6 +488,124 @@ class AsyncIcapClient(IcapProtocol):
         ).encode() + data
 
         return await self.respmod(service, http_request, http_response)
+
+    async def _scan_stream_chunked(
+        self,
+        stream: BinaryIO,
+        service: str,
+        filename: Optional[str],
+        chunk_size: int,
+    ) -> IcapResponse:
+        """
+        Scan a stream using chunked transfer encoding to avoid loading
+        the entire file into memory.
+
+        Args:
+            stream: File-like object to scan
+            service: ICAP service name
+            filename: Optional filename for HTTP headers
+            chunk_size: Size of chunks to read and send
+
+        Returns:
+            IcapResponse object
+        """
+        if not self._connected:
+            await self.connect()
+
+        if self._writer is None or self._reader is None:
+            raise IcapConnectionError("Not connected to ICAP server")
+
+        logger.info(
+            f"Scanning stream in chunks of {chunk_size} bytes{f' - {filename}' if filename else ''}"
+        )
+
+        # Build ICAP request line and headers
+        request_line = (
+            f"RESPMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
+        )
+
+        # Build HTTP request headers (encapsulated)
+        resource = f"/{filename}" if filename else "/scan"
+        http_request = f"GET {resource} HTTP/1.1\r\nHost: file-scan\r\n\r\n".encode()
+
+        # Build HTTP response headers (we'll use chunked transfer encoding)
+        http_response_headers = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/octet-stream\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"\r\n"
+        )
+
+        # Calculate encapsulated offsets
+        req_hdr_len = len(http_request)
+        res_hdr_len = len(http_response_headers)
+
+        icap_headers = {
+            "Host": f"{self.host}:{self.port}",
+            "User-Agent": "Python-ICAP-Client/1.0",
+            "Allow": "204",
+            "Encapsulated": f"req-hdr=0, res-hdr={req_hdr_len}, res-body={req_hdr_len + res_hdr_len}",
+        }
+
+        # Build and send ICAP headers
+        icap_request = self._build_request(request_line, icap_headers)
+        icap_request += http_request
+        icap_request += http_response_headers
+
+        try:
+            self._writer.write(icap_request)
+            await self._writer.drain()
+
+            # Stream the body in chunks
+            total_bytes = 0
+            async for chunk in self._iter_chunks(stream, chunk_size):
+                # Send chunk size in hex followed by CRLF
+                chunk_header = f"{len(chunk):X}\r\n".encode()
+                self._writer.write(chunk_header)
+                self._writer.write(chunk)
+                self._writer.write(b"\r\n")
+                await self._writer.drain()
+                total_bytes += len(chunk)
+
+            # Send final zero-length chunk to indicate end
+            self._writer.write(b"0\r\n\r\n")
+            await self._writer.drain()
+            logger.debug(f"Sent {total_bytes} bytes in chunked encoding")
+
+            # Receive response
+            response_data = await self._receive_response()
+
+        except asyncio.TimeoutError:
+            raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from None
+        except OSError as e:
+            self._connected = False
+            raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
+
+        # Parse response
+        try:
+            response = IcapResponse.parse(response_data)
+        except ValueError as e:
+            raise IcapProtocolError(f"Failed to parse ICAP response: {e}") from e
+
+        # Check for server errors
+        if 500 <= response.status_code < 600:
+            raise IcapServerError(
+                f"ICAP server error: {response.status_code} {response.status_message}"
+            )
+
+        return response
+
+    async def _iter_chunks(self, stream: BinaryIO, chunk_size: int):
+        """Iterate over a stream in chunks, yielding each chunk asynchronously."""
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                chunk = await loop.run_in_executor(None, lambda: stream.read(chunk_size))
+            except OSError as e:
+                raise IcapProtocolError(f"Failed to read from stream: {e}") from e
+            if not chunk:
+                break
+            yield chunk
 
     async def _send_and_receive(self, request: bytes) -> IcapResponse:
         """Send request and receive response.
@@ -624,7 +762,7 @@ class AsyncIcapClient(IcapProtocol):
                         timeout=self._timeout,
                     )
                     if not chunk:
-                        return body
+                        raise IcapProtocolError("Connection closed before chunked body complete")
                     buffer += chunk
                 except asyncio.TimeoutError:
                     raise IcapTimeoutError(
@@ -649,7 +787,7 @@ class AsyncIcapClient(IcapProtocol):
                         timeout=self._timeout,
                     )
                     if not chunk:
-                        return body
+                        raise IcapProtocolError("Connection closed before chunked body complete")
                     buffer += chunk
                 except asyncio.TimeoutError:
                     raise IcapTimeoutError(

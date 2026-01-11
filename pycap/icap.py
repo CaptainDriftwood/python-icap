@@ -445,7 +445,10 @@ class IcapClient(IcapProtocol):
         if chunk_size > 0:
             return self._scan_stream_chunked(stream, service, filename, chunk_size)
 
-        content = stream.read()
+        try:
+            content = stream.read()
+        except OSError as e:
+            raise IcapProtocolError(f"Failed to read from stream: {e}") from e
         logger.info(f"Scanning stream ({len(content)} bytes){f' - {filename}' if filename else ''}")
         return self.scan_bytes(content, service=service, filename=filename)
 
@@ -541,7 +544,10 @@ class IcapClient(IcapProtocol):
     def _iter_chunks(self, stream: BinaryIO, chunk_size: int) -> Iterator[bytes]:
         """Iterate over a stream in chunks."""
         while True:
-            chunk = stream.read(chunk_size)
+            try:
+                chunk = stream.read(chunk_size)
+            except OSError as e:
+                raise IcapProtocolError(f"Failed to read from stream: {e}") from e
             if not chunk:
                 break
             yield chunk
@@ -781,7 +787,7 @@ class IcapClient(IcapProtocol):
             while b"\r\n" not in buffer:
                 chunk = self._socket.recv(self.BUFFER_SIZE)
                 if not chunk:
-                    return body  # Connection closed
+                    raise IcapProtocolError("Connection closed before chunked body complete")
                 buffer += chunk
 
             # Parse chunk size (hex)
@@ -800,7 +806,7 @@ class IcapClient(IcapProtocol):
             while len(buffer) < chunk_size + 2:  # +2 for trailing CRLF
                 chunk = self._socket.recv(self.BUFFER_SIZE)
                 if not chunk:
-                    return body
+                    raise IcapProtocolError("Connection closed before chunked body complete")
                 buffer += chunk
 
             # Extract chunk data (excluding trailing CRLF)

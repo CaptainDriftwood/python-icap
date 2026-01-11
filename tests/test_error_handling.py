@@ -364,3 +364,85 @@ def test_204_no_modification_properties():
     assert response.is_no_modification
     assert response.is_success
     assert response.body == b""
+
+
+def test_chunked_body_connection_close_raises_protocol_error():
+    """Test that connection close during chunked body raises IcapProtocolError."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # First recv returns chunk size, second returns empty (connection closed)
+    mock_socket.recv.side_effect = [
+        b"5\r\nHello",  # Partial chunk data
+        b"",  # Connection closed before terminator
+    ]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        client._read_chunked_body(b"")
+
+    assert "Connection closed before chunked body complete" in str(exc_info.value)
+
+
+def test_chunked_body_connection_close_during_chunk_data():
+    """Test connection close while reading chunk data raises IcapProtocolError."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.side_effect = [
+        b"",  # Connection closed immediately
+    ]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        client._read_chunked_body(b"A\r\n")  # Expecting 10 bytes
+
+    assert "Connection closed before chunked body complete" in str(exc_info.value)
+
+
+def test_scan_stream_io_error_raises_protocol_error():
+    """Test that IOError during stream.read raises IcapProtocolError."""
+
+    client = IcapClient("localhost", 1344)
+    client._connected = True
+    client._socket = MagicMock()
+
+    # Create a mock stream that raises IOError on read
+    mock_stream = MagicMock()
+    mock_stream.read.side_effect = OSError("Disk read error")
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        client.scan_stream(mock_stream)
+
+    assert "Failed to read from stream" in str(exc_info.value)
+    assert "Disk read error" in str(exc_info.value)
+
+
+def test_iter_chunks_io_error_raises_protocol_error():
+    """Test that IOError during chunked stream read raises IcapProtocolError."""
+    client = IcapClient("localhost", 1344)
+
+    mock_stream = MagicMock()
+    mock_stream.read.side_effect = OSError("Device not ready")
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        list(client._iter_chunks(mock_stream, 1024))
+
+    assert "Failed to read from stream" in str(exc_info.value)
+
+
+def test_async_scan_stream_has_chunk_size_parameter():
+    """Test that AsyncIcapClient.scan_stream accepts chunk_size parameter."""
+    import inspect
+
+    from pycap import AsyncIcapClient
+
+    sig = inspect.signature(AsyncIcapClient.scan_stream)
+    params = list(sig.parameters.keys())
+
+    assert "chunk_size" in params
+    assert sig.parameters["chunk_size"].default == 0
