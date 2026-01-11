@@ -790,9 +790,7 @@ class IcapClient(IcapProtocol):
                 # Chunk size may have extensions after semicolon, ignore them
                 chunk_size = int(size_line.split(b";")[0].strip(), 16)
             except ValueError:
-                raise IcapProtocolError(
-                    f"Invalid chunk size in response: {size_line!r}"
-                ) from None
+                raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}") from None
 
             if chunk_size == 0:
                 # Final chunk - read trailing CRLF
