@@ -294,6 +294,8 @@ class AsyncIcapClient(IcapProtocol):
 
         # Handle preview mode
         if preview is not None and http_res_body:
+            if preview <= 0:
+                raise ValueError("preview size must be a positive integer")
             return await self._send_with_preview(request, http_res_body, preview)
 
         # Add encapsulated body with chunked transfer encoding
@@ -494,6 +496,11 @@ class AsyncIcapClient(IcapProtocol):
         except asyncio.TimeoutError as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except (ConnectionResetError, BrokenPipeError, OSError) as e:
+            if self._writer is not None:
+                try:
+                    self._writer.close()
+                except Exception:
+                    pass  # Best effort cleanup
             self._writer = None
             self._reader = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
@@ -547,7 +554,12 @@ class AsyncIcapClient(IcapProtocol):
                     key_lower = key.strip().lower()
                     value_stripped = value.strip().lower()
                     if key_lower == "content-length":
-                        content_length = int(value.strip())
+                        try:
+                            content_length = int(value.strip())
+                        except ValueError:
+                            raise IcapProtocolError(
+                                f"Invalid Content-Length header: {value.strip()!r}"
+                            )
                     elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
                         is_chunked = True
 
@@ -572,6 +584,12 @@ class AsyncIcapClient(IcapProtocol):
                         raise IcapTimeoutError(
                             f"Timeout reading response body from {self.host}:{self.port}"
                         ) from None
+
+                # Validate we received all expected bytes
+                if bytes_read < content_length:
+                    raise IcapProtocolError(
+                        f"Incomplete response: expected {content_length} bytes, got {bytes_read}"
+                    )
 
             elif is_chunked:
                 # Read chunked transfer encoding
@@ -618,8 +636,7 @@ class AsyncIcapClient(IcapProtocol):
             try:
                 chunk_size = int(size_line.split(b";")[0].strip(), 16)
             except ValueError:
-                logger.warning(f"Invalid chunk size: {size_line}")
-                return body
+                raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}")
 
             if chunk_size == 0:
                 break
@@ -726,6 +743,11 @@ class AsyncIcapClient(IcapProtocol):
         except asyncio.TimeoutError as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except (ConnectionResetError, BrokenPipeError, OSError) as e:
+            if self._writer is not None:
+                try:
+                    self._writer.close()
+                except Exception:
+                    pass  # Best effort cleanup
             self._writer = None
             self._reader = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
