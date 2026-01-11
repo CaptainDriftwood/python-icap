@@ -559,7 +559,7 @@ class AsyncIcapClient(IcapProtocol):
                         except ValueError:
                             raise IcapProtocolError(
                                 f"Invalid Content-Length header: {value.strip()!r}"
-                            )
+                            ) from None
                     elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
                         is_chunked = True
 
@@ -636,7 +636,9 @@ class AsyncIcapClient(IcapProtocol):
             try:
                 chunk_size = int(size_line.split(b";")[0].strip(), 16)
             except ValueError:
-                raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}")
+                raise IcapProtocolError(
+                    f"Invalid chunk size in response: {size_line!r}"
+                ) from None
 
             if chunk_size == 0:
                 break

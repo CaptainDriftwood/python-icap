@@ -577,7 +577,7 @@ class IcapClient(IcapProtocol):
                             except ValueError:
                                 raise IcapProtocolError(
                                     f"Invalid Content-Length header: {value.strip()!r}"
-                                )
+                                ) from None
                             break
 
                 if content_length is not None:
@@ -703,7 +703,7 @@ class IcapClient(IcapProtocol):
                             except ValueError:
                                 raise IcapProtocolError(
                                     f"Invalid Content-Length header: {value.strip()!r}"
-                                )
+                                ) from None
                         elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
                             is_chunked = True
 
@@ -790,7 +790,9 @@ class IcapClient(IcapProtocol):
                 # Chunk size may have extensions after semicolon, ignore them
                 chunk_size = int(size_line.split(b";")[0].strip(), 16)
             except ValueError:
-                raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}")
+                raise IcapProtocolError(
+                    f"Invalid chunk size in response: {size_line!r}"
+                ) from None
 
             if chunk_size == 0:
                 # Final chunk - read trailing CRLF
