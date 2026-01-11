@@ -160,19 +160,30 @@ async def test_async_scan_file_eicar(icap_service, tmp_path):
         assert not response.is_no_modification
 
 
-async def test_async_error_handling_wrong_port():
+async def test_async_error_handling_wrong_port(mocker):
     """Test error handling for connection failures (wrong port)."""
+    mocker.patch(
+        "asyncio.open_connection",
+        side_effect=ConnectionRefusedError("Connection refused"),
+    )
+
     with pytest.raises(IcapConnectionError):
         async with AsyncIcapClient("localhost", port=9999) as client:
             await client.options("avscan")
 
 
-async def test_async_error_handling_wrong_host():
+async def test_async_error_handling_wrong_host(mocker):
     """Test error handling for connection failures (wrong host)."""
+    import asyncio
+
+    mocker.patch(
+        "asyncio.open_connection",
+        side_effect=asyncio.TimeoutError("Connection timed out"),
+    )
+
     from pycap.exception import IcapTimeoutError
 
-    with pytest.raises((IcapConnectionError, IcapTimeoutError, OSError)):
-        # Use a non-routable IP to test connection failure
+    with pytest.raises(IcapTimeoutError):
         client = AsyncIcapClient("192.0.2.1", port=1344, timeout=2.0)
         await client.connect()
 

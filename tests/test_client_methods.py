@@ -12,10 +12,6 @@ import pytest
 from pycap import AsyncIcapClient, IcapClient
 from pycap.exception import IcapConnectionError, IcapProtocolError, IcapTimeoutError
 
-# =============================================================================
-# TEST-002: _send_with_preview() tests
-# =============================================================================
-
 
 def test_send_with_preview_complete_in_preview():
     """Test preview mode when entire body fits in preview size."""
@@ -106,11 +102,6 @@ def test_send_with_preview_connection_error():
     assert not client._connected
 
 
-# =============================================================================
-# TEST-003: _receive_response() tests
-# =============================================================================
-
-
 def test_receive_response_simple():
     """Test receiving a simple ICAP response."""
     client = IcapClient("localhost", 1344)
@@ -152,11 +143,6 @@ def test_receive_response_not_connected():
         client._receive_response()
 
     assert "Not connected" in str(exc_info.value)
-
-
-# =============================================================================
-# TEST-006: _scan_stream_chunked() tests
-# =============================================================================
 
 
 def test_scan_stream_chunked_sends_chunks():
@@ -201,11 +187,6 @@ def test_scan_stream_chunked_not_connected(mocker):
     client._scan_stream_chunked(stream, "avscan", None, chunk_size=100)
 
 
-# =============================================================================
-# TEST-007: _iter_chunks() tests
-# =============================================================================
-
-
 def test_iter_chunks_basic():
     """Test basic chunk iteration."""
     from io import BytesIO
@@ -240,11 +221,6 @@ def test_iter_chunks_empty_stream():
     chunks = list(client._iter_chunks(stream, chunk_size=10))
 
     assert chunks == []
-
-
-# =============================================================================
-# TEST-008: reqmod() tests
-# =============================================================================
 
 
 def test_reqmod_basic():
@@ -325,11 +301,6 @@ def test_reqmod_auto_connects(mocker):
     assert response.status_code == 204
 
 
-# =============================================================================
-# TEST-009: options() tests
-# =============================================================================
-
-
 def test_options_basic():
     """Test basic OPTIONS request."""
     client = IcapClient("localhost", 1344)
@@ -370,11 +341,6 @@ def test_options_auto_connects(mocker):
     assert response.status_code == 200
 
 
-# =============================================================================
-# TEST-018: Chunked encoding edge cases
-# =============================================================================
-
-
 def test_read_chunked_body_large_chunks():
     """Test reading chunked body with large chunk sizes."""
     client = IcapClient("localhost", 1344)
@@ -410,11 +376,6 @@ def test_read_chunked_body_multiple_chunks():
     assert body == b"aaabbbccc"
 
 
-# =============================================================================
-# TEST-004: Async _read_chunked_body() tests
-# =============================================================================
-
-
 @pytest.mark.asyncio
 async def test_async_read_chunked_body_simple():
     """Test async chunked body reading."""
@@ -447,11 +408,6 @@ async def test_async_read_chunked_body_connection_close():
     assert "Connection closed" in str(exc_info.value)
 
 
-# =============================================================================
-# TEST-005: Async _receive_response() tests
-# =============================================================================
-
-
 @pytest.mark.asyncio
 async def test_async_receive_response_not_connected():
     """Test async _receive_response raises when not connected."""
@@ -480,11 +436,6 @@ async def test_async_receive_response_simple():
 
     response_data = await client._receive_response()
     assert b"200 OK" in response_data
-
-
-# =============================================================================
-# Async _iter_chunks() and _scan_stream_chunked() tests
-# =============================================================================
 
 
 @pytest.mark.asyncio
@@ -530,54 +481,70 @@ async def test_async_scan_stream_chunked():
     assert response.status_code == 204
 
 
-# =============================================================================
-# TEST-012/013: Connection error scenarios
-# =============================================================================
-
-
-def test_connect_to_invalid_host():
+def test_connect_to_invalid_host(mocker):
     """Test connection to invalid host raises IcapConnectionError."""
+    import socket
+
+    mock_socket_instance = MagicMock()
+    mock_socket_instance.connect.side_effect = socket.gaierror(
+        socket.EAI_NONAME, "Name or service not known"
+    )
+    mocker.patch("socket.socket", return_value=mock_socket_instance)
+
     client = IcapClient("invalid.host.that.does.not.exist.local", 1344)
-    client._timeout = 1  # Short timeout
 
-    with pytest.raises(IcapConnectionError):
+    with pytest.raises(IcapConnectionError) as exc_info:
         client.connect()
 
+    assert "Failed to connect" in str(exc_info.value)
+    mock_socket_instance.connect.assert_called_once()
 
-def test_connect_to_refused_port():
+
+def test_connect_to_refused_port(mocker):
     """Test connection to port with no listener raises IcapConnectionError."""
-    # Port 1 is privileged and unlikely to have a listener
-    client = IcapClient("127.0.0.1", 1)
-    client._timeout = 1
+    mock_socket_instance = MagicMock()
+    mock_socket_instance.connect.side_effect = ConnectionRefusedError("Connection refused")
+    mocker.patch("socket.socket", return_value=mock_socket_instance)
 
-    with pytest.raises(IcapConnectionError):
+    client = IcapClient("127.0.0.1", 1)
+
+    with pytest.raises(IcapConnectionError) as exc_info:
         client.connect()
 
+    assert "Failed to connect" in str(exc_info.value)
+    mock_socket_instance.connect.assert_called_once()
 
-@pytest.mark.asyncio
-async def test_async_connect_to_invalid_host():
-    """Test async connection to invalid host raises IcapConnectionError or IcapTimeoutError."""
+
+async def test_async_connect_to_invalid_host(mocker):
+    """Test async connection to invalid host raises IcapConnectionError."""
+    import socket
+
+    mocker.patch(
+        "asyncio.open_connection",
+        side_effect=socket.gaierror(socket.EAI_NONAME, "Name or service not known"),
+    )
+
     client = AsyncIcapClient("invalid.host.that.does.not.exist.local", 1344)
-    client._timeout = 1
 
-    # Can raise either IcapConnectionError (DNS failure) or IcapTimeoutError (DNS timeout)
-    with pytest.raises((IcapConnectionError, IcapTimeoutError)):
+    with pytest.raises(IcapConnectionError) as exc_info:
         await client.connect()
 
+    assert "Failed to connect" in str(exc_info.value)
 
-@pytest.mark.asyncio
-async def test_async_connect_to_refused_port():
+
+async def test_async_connect_to_refused_port(mocker):
     """Test async connection to refused port raises IcapConnectionError."""
-    client = AsyncIcapClient("127.0.0.1", 1)
-    client._timeout = 1
+    mocker.patch(
+        "asyncio.open_connection",
+        side_effect=ConnectionRefusedError("Connection refused"),
+    )
 
-    with pytest.raises(IcapConnectionError):
+    client = AsyncIcapClient("127.0.0.1", 1)
+
+    with pytest.raises(IcapConnectionError) as exc_info:
         await client.connect()
 
-
-# =============================================================================
-# TEST-020: Timeout scenarios
-# =============================================================================
+    assert "Failed to connect" in str(exc_info.value)
 
 
 def test_timeout_during_recv():
@@ -594,11 +561,6 @@ def test_timeout_during_recv():
 
     with pytest.raises(IcapTimeoutError):
         client._receive_response()
-
-
-# =============================================================================
-# PARITY-002/003: Sync/Async parity tests
-# =============================================================================
 
 
 def test_sync_async_api_parity():

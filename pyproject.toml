@@ -58,6 +58,7 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "ssl: marks tests requiring SSL/TLS certificates (run: just generate-certs)",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "icap(host, port, timeout, ssl_context): configure ICAP client for testing",
     "icap_mock(response, virus_name, raises, options, respmod, reqmod): configure mock ICAP client",
 ]
@@ -103,6 +104,7 @@ dev = [
     "pytest-mock>=3.10.0",
     "pytest-timeout>=2.0.0",
     "ruff>=0.1.0",
+    "setuptools>=75.3.2",  # Required for PyCharm's test runner
     "testcontainers>=3.7.0",
     "ty>=0.0.8",
 ]
