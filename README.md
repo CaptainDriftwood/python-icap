@@ -1,8 +1,7 @@
 <p align="center">
-  <img src=".github/assets/logo.svg" alt="py-cap logo" width="400">
+  <img src=".github/assets/logo.svg" alt="py-cap logo" width="450">
 </p>
-
-# py-cap
+<h1 align="center">py-cap</h1>
 
 [![Tests](https://github.com/CaptainDriftwood/py-cap/actions/workflows/test.yml/badge.svg)](https://github.com/CaptainDriftwood/py-cap/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/CaptainDriftwood/py-cap/graph/badge.svg)](https://codecov.io/gh/CaptainDriftwood/py-cap)
