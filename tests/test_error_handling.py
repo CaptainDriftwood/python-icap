@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pycap import IcapClient, IcapResponse
-from pycap.exception import IcapProtocolError, IcapServerError
+from py_cap import IcapClient, IcapResponse
+from py_cap.exception import IcapProtocolError, IcapServerError
 
 
 def test_invalid_status_line_raises_value_error():
@@ -436,7 +436,7 @@ def test_async_scan_stream_has_chunk_size_parameter():
     """Test that AsyncIcapClient.scan_stream accepts chunk_size parameter."""
     import inspect
 
-    from pycap import AsyncIcapClient
+    from py_cap import AsyncIcapClient
 
     sig = inspect.signature(AsyncIcapClient.scan_stream)
     params = list(sig.parameters.keys())

@@ -6,7 +6,7 @@ IcapResponse objects for use in tests without needing to remember the
 exact constructor arguments or ICAP protocol details.
 
 Example:
-    >>> from pytest_pycap import IcapResponseBuilder
+    >>> from pytest_py_cap import IcapResponseBuilder
     >>>
     >>> # Build a clean response (204 No Modification)
     >>> clean = IcapResponseBuilder().clean().build()
@@ -32,7 +32,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pycap import IcapResponse
+    from py_cap import IcapResponse
 
 
 class IcapResponseBuilder:
@@ -112,7 +112,7 @@ class IcapResponseBuilder:
         ... )
 
     Example - Using with MockIcapClient:
-        >>> from pytest_pycap import MockIcapClient, IcapResponseBuilder
+        >>> from pytest_py_cap import MockIcapClient, IcapResponseBuilder
         >>> client = MockIcapClient()
         >>> client.on_respmod(IcapResponseBuilder().virus("Trojan.Gen").build())
         >>> response = client.scan_bytes(b"malware")
@@ -410,7 +410,7 @@ class IcapResponseBuilder:
             >>> clean = builder.clean().build()
             >>> virus = builder.virus().build()  # Reuse same builder
         """
-        from pycap import IcapResponse
+        from py_cap import IcapResponse
 
         return IcapResponse(
             status_code=self._status_code,

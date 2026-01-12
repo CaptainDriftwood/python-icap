@@ -11,7 +11,7 @@ import time
 
 from test_utils import EICAR_TEST_STRING
 
-from pycap import IcapClient
+from py_cap import IcapClient
 
 
 def test_connection(host="localhost", port=1344, service="avscan"):

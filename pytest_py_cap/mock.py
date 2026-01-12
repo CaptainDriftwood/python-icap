@@ -23,7 +23,7 @@ Classes:
     MockResponseExhaustedError: Raised when all queued responses are consumed.
 
 Basic Example:
-    >>> from pytest_pycap import MockIcapClient, IcapResponseBuilder
+    >>> from pytest_py_cap import MockIcapClient, IcapResponseBuilder
     >>>
     >>> # Create mock with default clean responses
     >>> client = MockIcapClient()
@@ -75,7 +75,7 @@ from typing import TYPE_CHECKING, Any, BinaryIO, Protocol
 from .builder import IcapResponseBuilder
 
 if TYPE_CHECKING:
-    from pycap import IcapResponse
+    from py_cap import IcapResponse
 
 
 class ResponseCallback(Protocol):
@@ -706,7 +706,7 @@ class MockIcapClient:
         >>> client.scan_bytes(b"safe", filename="app.exe").is_no_modification  # False
 
     Example - Exception injection:
-        >>> from pycap.exception import IcapTimeoutError
+        >>> from py_cap.exception import IcapTimeoutError
         >>> client = MockIcapClient()
         >>> client.on_any(raises=IcapTimeoutError("Connection timed out"))
         >>> client.scan_bytes(b"content")  # Raises IcapTimeoutError

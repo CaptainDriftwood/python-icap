@@ -29,7 +29,7 @@ Wait Strategy Note:
 import pytest
 
 from examples.test_utils import EICAR_TEST_STRING
-from pycap import IcapClient
+from py_cap import IcapClient
 
 
 @pytest.mark.integration

@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pycap import AsyncIcapClient, IcapClient
-from pycap.exception import IcapConnectionError, IcapProtocolError, IcapTimeoutError
+from py_cap import AsyncIcapClient, IcapClient
+from py_cap.exception import IcapConnectionError, IcapProtocolError, IcapTimeoutError
 
 
 def test_send_with_preview_complete_in_preview():

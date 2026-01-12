@@ -25,8 +25,8 @@ from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from botocore.exceptions import ClientError
 
-from pycap import IcapClient
-from pycap.exception import IcapConnectionError, IcapTimeoutError
+from py_cap import IcapClient
+from py_cap.exception import IcapConnectionError, IcapTimeoutError
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client

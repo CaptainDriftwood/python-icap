@@ -6,7 +6,7 @@ import ssl
 
 import pytest
 
-from pycap import AsyncIcapClient, IcapClient, IcapResponse
+from py_cap import AsyncIcapClient, IcapClient, IcapResponse
 
 # IcapResponse tests
 
