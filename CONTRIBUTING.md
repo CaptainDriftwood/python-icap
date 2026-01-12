@@ -6,7 +6,7 @@ Thank you for your interest in contributing to py-cap!
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/CaptainDriftwood/py_cap.git
+   git clone https://github.com/CaptainDriftwood/py-cap.git
    cd py_cap
    ```
 

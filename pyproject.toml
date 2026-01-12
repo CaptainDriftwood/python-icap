@@ -39,8 +39,8 @@ keywords = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/CaptainDriftwood/py_cap"
-Repository = "https://github.com/CaptainDriftwood/py_cap"
+Homepage = "https://github.com/CaptainDriftwood/py-cap"
+Repository = "https://github.com/CaptainDriftwood/py-cap"
 
 [project.entry-points.pytest11]
 py_cap = "pytest_py_cap.plugin"
