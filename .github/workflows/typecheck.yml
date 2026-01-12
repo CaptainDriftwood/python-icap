@@ -25,4 +25,4 @@ jobs:
         uv sync --group dev
 
     - name: Run type checker
-      run: uv run ty check pycap
+      run: uv run ty check py_cap
