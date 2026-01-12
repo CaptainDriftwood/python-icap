@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/logo.svg" alt="py-cap logo" width="400">
+</p>
+
 # py-cap
 
 [![Tests](https://github.com/CaptainDriftwood/py_cap/actions/workflows/test.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/test.yml)
