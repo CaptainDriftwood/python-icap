@@ -598,6 +598,8 @@ class MockCall:
         if self.was_clean:
             parts.append(" -> clean")
         elif self.was_virus:
+            # was_virus property guarantees self.response is not None
+            assert self.response is not None
             virus_id = self.response.headers.get("X-Virus-ID", "unknown")
             parts.append(f" -> virus({virus_id})")
         elif self.exception:
@@ -1797,7 +1799,8 @@ class MockIcapClient:
         callback = self._callbacks.get(method)
         if callback is not None:
             self._callback_used[method] = True
-            return callback(**call_kwargs), "callback"
+            # Type checker can't narrow callback type; sync client only uses sync callbacks
+            return callback(**call_kwargs), "callback"  # type: ignore[return-value]
 
         queue = self._response_queues[method]
 
