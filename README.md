@@ -1,4 +1,4 @@
-# py-cap - Python ICAP Client
+# py-cap
 
 [![Tests](https://github.com/CaptainDriftwood/py_cap/actions/workflows/test.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/test.yml)
 [![Lint](https://github.com/CaptainDriftwood/py_cap/actions/workflows/lint.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/lint.yml)
