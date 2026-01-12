@@ -1,9 +1,9 @@
 # py-cap - Python ICAP Client
 
-[![Tests](https://github.com/CaptainDriftwood/pycap/actions/workflows/test.yml/badge.svg)](https://github.com/CaptainDriftwood/pycap/actions/workflows/test.yml)
-[![Lint](https://github.com/CaptainDriftwood/pycap/actions/workflows/lint.yml/badge.svg)](https://github.com/CaptainDriftwood/pycap/actions/workflows/lint.yml)
-[![Type Check](https://github.com/CaptainDriftwood/pycap/actions/workflows/typecheck.yml/badge.svg)](https://github.com/CaptainDriftwood/pycap/actions/workflows/typecheck.yml)
-[![CodeQL](https://github.com/CaptainDriftwood/pycap/actions/workflows/codeql.yml/badge.svg)](https://github.com/CaptainDriftwood/pycap/actions/workflows/codeql.yml)
+[![Tests](https://github.com/CaptainDriftwood/py_cap/actions/workflows/test.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/test.yml)
+[![Lint](https://github.com/CaptainDriftwood/py_cap/actions/workflows/lint.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/lint.yml)
+[![Type Check](https://github.com/CaptainDriftwood/py_cap/actions/workflows/typecheck.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/typecheck.yml)
+[![CodeQL](https://github.com/CaptainDriftwood/py_cap/actions/workflows/codeql.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/codeql.yml)
 
 [![Python 3.8 | 3.9 | 3.10 | 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
