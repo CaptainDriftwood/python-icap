@@ -12,7 +12,7 @@ Environment Variables:
 Requirements:
     - boto3
     - aws-lambda-powertools
-    - pycap
+    - py_cap
 """
 
 from __future__ import annotations

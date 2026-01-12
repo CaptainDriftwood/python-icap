@@ -1,4 +1,4 @@
-"""Tests for the pytest_pycap plugin using pytester."""
+"""Tests for the pytest_py_cap plugin using pytester."""
 
 pytest_plugins = ["pytester"]
 
@@ -91,12 +91,12 @@ def test_plugin_exports(pytester):
         import pytest_py_cap
 
         def test_exports():
-            assert hasattr(pytest_pycap, "pytest_configure")
-            assert hasattr(pytest_pycap, "icap_client")
-            assert hasattr(pytest_pycap, "async_icap_client")
-            assert hasattr(pytest_pycap, "icap_service_config")
-            assert hasattr(pytest_pycap, "sample_clean_content")
-            assert hasattr(pytest_pycap, "sample_file")
+            assert hasattr(pytest_py_cap, "pytest_configure")
+            assert hasattr(pytest_py_cap, "icap_client")
+            assert hasattr(pytest_py_cap, "async_icap_client")
+            assert hasattr(pytest_py_cap, "icap_service_config")
+            assert hasattr(pytest_py_cap, "sample_clean_content")
+            assert hasattr(pytest_py_cap, "sample_file")
         """
     )
     result = pytester.runpytest()
@@ -460,14 +460,14 @@ def test_plugin_exports_mock_components(pytester):
         import pytest_py_cap
 
         def test_mock_exports():
-            assert hasattr(pytest_pycap, "IcapResponseBuilder")
-            assert hasattr(pytest_pycap, "MockIcapClient")
-            assert hasattr(pytest_pycap, "MockAsyncIcapClient")
-            assert hasattr(pytest_pycap, "MockCall")
-            assert hasattr(pytest_pycap, "mock_icap_client")
-            assert hasattr(pytest_pycap, "mock_async_icap_client")
-            assert hasattr(pytest_pycap, "icap_response_builder")
-            assert hasattr(pytest_pycap, "icap_mock")
+            assert hasattr(pytest_py_cap, "IcapResponseBuilder")
+            assert hasattr(pytest_py_cap, "MockIcapClient")
+            assert hasattr(pytest_py_cap, "MockAsyncIcapClient")
+            assert hasattr(pytest_py_cap, "MockCall")
+            assert hasattr(pytest_py_cap, "mock_icap_client")
+            assert hasattr(pytest_py_cap, "mock_async_icap_client")
+            assert hasattr(pytest_py_cap, "icap_response_builder")
+            assert hasattr(pytest_py_cap, "icap_mock")
         """
     )
     result = pytester.runpytest()

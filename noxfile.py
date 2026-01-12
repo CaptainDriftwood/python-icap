@@ -26,4 +26,4 @@ def lint(session: nox.Session) -> None:
 def typecheck(session: nox.Session) -> None:
     """Run type checking."""
     session.install("-e", ".[dev]")
-    session.run("ty", "check", "pycap")
+    session.run("ty", "check", "py_cap")

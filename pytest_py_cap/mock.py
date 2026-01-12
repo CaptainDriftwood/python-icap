@@ -58,7 +58,7 @@ Content Matcher Example:
     >>> client.scan_bytes(b"data", filename="doc.pdf").is_no_modification  # True
 
 See Also:
-    pytest_pycap: Main package with fixtures and builders.
+    pytest_py_cap: Main package with fixtures and builders.
     IcapResponseBuilder: Fluent builder for creating test responses.
 """
 

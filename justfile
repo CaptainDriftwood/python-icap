@@ -57,7 +57,7 @@ fmt-check:
 
 # Run type checker
 typecheck:
-    uv run ty check pycap
+    uv run ty check py_cap
 
 # Aliases for type checking
 alias type := typecheck

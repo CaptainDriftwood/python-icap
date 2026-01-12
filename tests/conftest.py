@@ -1,4 +1,4 @@
-"""Pytest configuration for pycap tests."""
+"""Pytest configuration for py_cap tests."""
 
 from __future__ import annotations
 
