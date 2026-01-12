@@ -36,7 +36,23 @@ jobs:
       run: uv sync --all-extras
 
     - name: Run unit tests
+      if: matrix.python-version != '3.12'
       run: uv run pytest -v -m "not integration"
+
+    - name: Run unit tests with coverage
+      if: matrix.python-version == '3.12'
+      run: |
+        uv run coverage run -m pytest -v -m "not integration"
+        uv run coverage xml
+
+    - name: Upload coverage to Codecov
+      if: matrix.python-version == '3.12'
+      uses: codecov/codecov-action@1e68e06f1dbfde0e4cefc87efeba9e4643565571 # v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage.xml
+        fail_ci_if_error: false
+        verbose: true
 
   integration-tests:
     runs-on: ubuntu-latest

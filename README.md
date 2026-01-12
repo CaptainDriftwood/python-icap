@@ -1,6 +1,7 @@
 # py-cap
 
 [![Tests](https://github.com/CaptainDriftwood/py_cap/actions/workflows/test.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/CaptainDriftwood/py_cap/graph/badge.svg)](https://codecov.io/gh/CaptainDriftwood/py_cap)
 [![Lint](https://github.com/CaptainDriftwood/py_cap/actions/workflows/lint.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/lint.yml)
 [![Type Check](https://github.com/CaptainDriftwood/py_cap/actions/workflows/typecheck.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/typecheck.yml)
 [![CodeQL](https://github.com/CaptainDriftwood/py_cap/actions/workflows/codeql.yml/badge.svg)](https://github.com/CaptainDriftwood/py_cap/actions/workflows/codeql.yml)
