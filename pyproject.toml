@@ -99,7 +99,8 @@ indent-style = "space"
 
 [dependency-groups]
 dev = [
-    "nox[uv]>=2024.0.0",
+    "nox>=2024.0.0",
+    "nox-uv>=0.2.0; python_version >= '3.9'",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.10.0",
