@@ -589,7 +589,7 @@ just ci           # Run full CI checks (fmt, lint, typecheck, test)
 ### Project Structure
 
 ```
-pycap/
+py-cap/
 ├── py_cap/
 │   ├── __init__.py       # Package exports
 │   ├── icap.py           # Synchronous ICAP client
