@@ -23,7 +23,7 @@ Classes:
     MockResponseExhaustedError: Raised when all queued responses are consumed.
 
 Basic Example:
-    >>> from pytest_pycap import MockIcapClient, IcapResponseBuilder
+    >>> from pytest_py_cap import MockIcapClient, IcapResponseBuilder
     >>>
     >>> # Create mock with default clean responses
     >>> client = MockIcapClient()
@@ -58,7 +58,7 @@ Content Matcher Example:
     >>> client.scan_bytes(b"data", filename="doc.pdf").is_no_modification  # True
 
 See Also:
-    pytest_pycap: Main package with fixtures and builders.
+    pytest_py_cap: Main package with fixtures and builders.
     IcapResponseBuilder: Fluent builder for creating test responses.
 """
 
@@ -75,7 +75,7 @@ from typing import TYPE_CHECKING, Any, BinaryIO, Protocol
 from .builder import IcapResponseBuilder
 
 if TYPE_CHECKING:
-    from pycap import IcapResponse
+    from py_cap import IcapResponse
 
 
 class ResponseCallback(Protocol):
@@ -598,6 +598,8 @@ class MockCall:
         if self.was_clean:
             parts.append(" -> clean")
         elif self.was_virus:
+            # was_virus property guarantees self.response is not None
+            assert self.response is not None
             virus_id = self.response.headers.get("X-Virus-ID", "unknown")
             parts.append(f" -> virus({virus_id})")
         elif self.exception:
@@ -706,7 +708,7 @@ class MockIcapClient:
         >>> client.scan_bytes(b"safe", filename="app.exe").is_no_modification  # False
 
     Example - Exception injection:
-        >>> from pycap.exception import IcapTimeoutError
+        >>> from py_cap.exception import IcapTimeoutError
         >>> client = MockIcapClient()
         >>> client.on_any(raises=IcapTimeoutError("Connection timed out"))
         >>> client.scan_bytes(b"content")  # Raises IcapTimeoutError
@@ -1797,7 +1799,8 @@ class MockIcapClient:
         callback = self._callbacks.get(method)
         if callback is not None:
             self._callback_used[method] = True
-            return callback(**call_kwargs), "callback"
+            # Type checker can't narrow callback type; sync client only uses sync callbacks
+            return callback(**call_kwargs), "callback"  # type: ignore[return-value]
 
         queue = self._response_queues[method]
 

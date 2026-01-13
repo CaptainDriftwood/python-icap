@@ -13,8 +13,8 @@ Exception Hierarchy:
     └── IcapServerError - Server-side errors (5xx)
 
 Example:
-    >>> from pycap import IcapClient
-    >>> from pycap.exception import IcapConnectionError, IcapTimeoutError
+    >>> from py_cap import IcapClient
+    >>> from py_cap.exception import IcapConnectionError, IcapTimeoutError
     >>>
     >>> try:
     ...     with IcapClient("localhost") as client:

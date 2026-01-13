@@ -1,0 +1,22 @@
+name: Dependency Review
+
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    # This action requires GitHub Advanced Security, which is only available
+    # for public repos or private repos on GitHub Enterprise.
+    # We use continue-on-error so it doesn't block PRs on private repos.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@da24556b548a50705dd671f47852072ea4c105d9 # v4
+        with:
+          fail-on-severity: high

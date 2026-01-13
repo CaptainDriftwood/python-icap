@@ -1,0 +1,40 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Python files
+*.py text diff=python
+
+# Shell scripts
+*.sh text eol=lf
+
+# Batch scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Documentation
+*.md text diff=markdown
+*.rst text
+
+# Config files
+*.json text
+*.toml text
+*.yaml text
+*.yml text
+*.ini text
+*.cfg text
+
+# Lock files - treat as binary for cleaner diffs
+uv.lock binary
+
+# Graphics
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text
+
+# Certificates
+*.pem binary
+*.crt binary
+*.key binary

@@ -1,4 +1,4 @@
-"""Pytest configuration for pycap tests."""
+"""Pytest configuration for py_cap tests."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def wait_for_icap_service(
     Raises:
         TimeoutError: If service doesn't become ready within timeout
     """
-    from pycap import IcapClient
+    from py_cap import IcapClient
 
     start_time = time.time()
     last_error = None

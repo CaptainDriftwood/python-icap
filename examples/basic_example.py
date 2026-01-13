@@ -5,7 +5,7 @@ Basic example of using the PyCap ICAP client.
 
 from test_utils import EICAR_TEST_STRING
 
-from pycap import IcapClient
+from py_cap import IcapClient
 
 
 def main():

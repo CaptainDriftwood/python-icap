@@ -50,6 +50,9 @@ fmt:
     uv run ruff check --fix --select I .
     uv run ruff format .
 
+# Alias for format
+alias format := fmt
+
 # Check formatting without making changes
 fmt-check:
     uv run ruff check --select I .
@@ -57,7 +60,7 @@ fmt-check:
 
 # Run type checker
 typecheck:
-    uv run ty check pycap
+    uv run ty check py_cap
 
 # Aliases for type checking
 alias type := typecheck

@@ -16,6 +16,9 @@ permissions:
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    # CodeQL requires GitHub Advanced Security for private repos.
+    # We use continue-on-error so it doesn't block PRs on private repos.
+    continue-on-error: true
 
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4

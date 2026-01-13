@@ -93,8 +93,8 @@ from typing import Any, AsyncGenerator, Generator
 
 import pytest
 
-from pycap import AsyncIcapClient, IcapClient, IcapResponse
-from pycap.exception import IcapConnectionError, IcapTimeoutError
+from py_cap import AsyncIcapClient, IcapClient, IcapResponse
+from py_cap.exception import IcapConnectionError, IcapTimeoutError
 
 from .builder import IcapResponseBuilder
 from .mock import (

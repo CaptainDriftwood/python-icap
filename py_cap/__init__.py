@@ -15,7 +15,7 @@ from .response import IcapResponse
 # Set up logging with NullHandler to avoid "No handler found" warnings
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__version__ = version("pycap")
+__version__ = version("py-cap")
 
 __all__ = [
     "AsyncIcapClient",

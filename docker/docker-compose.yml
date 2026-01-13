@@ -1,10 +1,10 @@
 services:
   icap-server:
-    image: pycap-icap-server:latest
+    image: py-cap-icap-server:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: pycap-icap-server
+    container_name: py-cap-icap-server
     ports:
       - "1344:1344"
       - "11344:11344"  # TLS port (requires: just generate-certs)

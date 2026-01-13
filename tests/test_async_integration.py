@@ -9,8 +9,8 @@ import time
 
 import pytest
 
-from pycap import AsyncIcapClient
-from pycap.exception import IcapConnectionError
+from py_cap import AsyncIcapClient
+from py_cap.exception import IcapConnectionError
 
 # EICAR test virus signature
 EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
@@ -215,7 +215,7 @@ async def test_async_error_handling_wrong_host(mocker):
         side_effect=asyncio.TimeoutError("Connection timed out"),
     )
 
-    from pycap.exception import IcapTimeoutError
+    from py_cap.exception import IcapTimeoutError
 
     with pytest.raises(IcapTimeoutError):
         client = AsyncIcapClient("192.0.2.1", port=1344, timeout=2.0)
