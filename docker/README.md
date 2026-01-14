@@ -147,7 +147,7 @@ docker-compose up -d
 You can also test manually using Python:
 
 ```python
-from py_cap import IcapClient
+from icap import IcapClient
 
 # Test connection
 with IcapClient('localhost', 1344) as client:

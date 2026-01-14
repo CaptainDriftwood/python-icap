@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "py-cap"
+name = "python-icap"
 version = "0.1.0"
 description = "Python ICAP (Internet Content Adaptation Protocol) Client"
 readme = "README.md"
@@ -39,14 +39,14 @@ keywords = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/CaptainDriftwood/py-cap"
-Repository = "https://github.com/CaptainDriftwood/py-cap"
+Homepage = "https://github.com/CaptainDriftwood/python-icap"
+Repository = "https://github.com/CaptainDriftwood/python-icap"
 
 [project.entry-points.pytest11]
-py_cap = "pytest_py_cap.plugin"
+icap = "icap.pytest_plugin.plugin"
 
 [tool.hatch.build.targets.wheel]
-packages = ["py_cap", "pytest_py_cap"]
+packages = ["src/icap"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -91,7 +91,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["py_cap"]
+known-first-party = ["icap"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -114,7 +114,7 @@ dev = [
 ]
 
 [tool.coverage.run]
-source = ["py_cap", "pytest_py_cap"]
+source = ["src/icap"]
 branch = true
 parallel = true
 

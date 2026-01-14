@@ -1,8 +1,8 @@
 """
-Pytest plugin entry point for PyCap.
+Pytest plugin entry point for python-icap.
 """
 
-from pytest_py_cap import (
+from icap.pytest_plugin import (
     async_icap_client,
     icap_client,
     icap_mock,

@@ -8,10 +8,10 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in py-cap, please report it responsibly:
+If you discover a security vulnerability in python-icap, please report it responsibly:
 
 1. **Do not** open a public GitHub issue for security vulnerabilities
-2. Email the maintainers directly or use [GitHub's private vulnerability reporting](https://github.com/CaptainDriftwood/py-cap/security/advisories/new)
+2. Email the maintainers directly or use [GitHub's private vulnerability reporting](https://github.com/CaptainDriftwood/python-icap/security/advisories/new)
 3. Include as much detail as possible:
    - Description of the vulnerability
    - Steps to reproduce
@@ -26,9 +26,9 @@ If you discover a security vulnerability in py-cap, please report it responsibly
 
 ## Security Best Practices
 
-When using py-cap:
+When using python-icap:
 
 - Always use TLS/SSL when connecting to ICAP servers over untrusted networks
 - Validate and sanitize any user-provided input before passing to ICAP methods
-- Keep py-cap and its dependencies up to date
+- Keep python-icap and its dependencies up to date
 - Review ICAP server configurations for security hardening

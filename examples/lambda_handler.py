@@ -1,7 +1,7 @@
 """
 AWS Lambda handler for virus scanning S3 objects using ICAP.
 
-This example demonstrates how to use PyCap in an AWS Lambda function
+This example demonstrates how to use python-icap in an AWS Lambda function
 to scan newly uploaded S3 objects for viruses.
 
 Environment Variables:
@@ -12,7 +12,7 @@ Environment Variables:
 Requirements:
     - boto3
     - aws-lambda-powertools
-    - py_cap
+    - python-icap
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from botocore.exceptions import ClientError
 
-from py_cap import IcapClient
-from py_cap.exception import IcapConnectionError, IcapTimeoutError
+from icap import IcapClient
+from icap.exception import IcapConnectionError, IcapTimeoutError
 
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client

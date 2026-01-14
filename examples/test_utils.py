@@ -1,5 +1,5 @@
 """
-Test utilities and constants for PyCap examples and tests.
+Test utilities and constants for python-icap examples and tests.
 """
 
 # EICAR test virus string (harmless test pattern recognized by AV software)

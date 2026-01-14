@@ -6,8 +6,8 @@ labels: bug
 assignees: ''
 ---
 
-**py-cap version**
-<!-- Run: pip show py-cap -->
+**python-icap version**
+<!-- Run: pip show python-icap -->
 
 **Environment**
 - Python version:
@@ -28,7 +28,7 @@ A clear description of the bug.
 **Minimal Reproducible Example**
 ```python
 # Paste a minimal example that reproduces the issue
-from py_cap import IcapClient
+from icap import IcapClient
 
 with IcapClient('localhost') as client:
     # ...

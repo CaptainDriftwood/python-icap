@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Basic example of using the PyCap ICAP client.
+Basic example of using the python-icap ICAP client.
 """
 
 from test_utils import EICAR_TEST_STRING
 
-from py_cap import IcapClient
+from icap import IcapClient
 
 
 def main():
@@ -15,7 +15,7 @@ def main():
     SERVICE = "avscan"
 
     print("=" * 60)
-    print("PyCap ICAP Client - Basic Example")
+    print("python-icap ICAP Client - Basic Example")
     print("=" * 60)
 
     # Example 1: Test OPTIONS method

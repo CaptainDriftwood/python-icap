@@ -1,4 +1,4 @@
-"""Tests for the pytest_py_cap plugin using pytester."""
+"""Tests for the icap.pytest_plugin using pytester."""
 
 pytest_plugins = ["pytester"]
 
@@ -88,15 +88,15 @@ def test_plugin_exports(pytester):
     """Verify the plugin exports expected symbols."""
     pytester.makepyfile(
         """
-        import pytest_py_cap
+        import icap.pytest_plugin as pytest_plugin
 
         def test_exports():
-            assert hasattr(pytest_py_cap, "pytest_configure")
-            assert hasattr(pytest_py_cap, "icap_client")
-            assert hasattr(pytest_py_cap, "async_icap_client")
-            assert hasattr(pytest_py_cap, "icap_service_config")
-            assert hasattr(pytest_py_cap, "sample_clean_content")
-            assert hasattr(pytest_py_cap, "sample_file")
+            assert hasattr(pytest_plugin, "pytest_configure")
+            assert hasattr(pytest_plugin, "icap_client")
+            assert hasattr(pytest_plugin, "async_icap_client")
+            assert hasattr(pytest_plugin, "icap_service_config")
+            assert hasattr(pytest_plugin, "sample_clean_content")
+            assert hasattr(pytest_plugin, "sample_file")
         """
     )
     result = pytester.runpytest()
@@ -114,7 +114,7 @@ def test_icap_client_fixture_exists(pytester):
             fixture_names = [f for f in request.fixturenames]
             # We can't actually test the fixture without a server,
             # but we can verify it's importable
-            from pytest_py_cap import icap_client
+            from icap.pytest_plugin import icap_client
             assert callable(icap_client)
         """
     )
@@ -127,7 +127,7 @@ def test_async_icap_client_fixture_exists(pytester):
     pytester.makepyfile(
         """
         def test_async_fixture_registered():
-            from pytest_py_cap import async_icap_client
+            from icap.pytest_plugin import async_icap_client
             # The fixture is wrapped by pytest's decorator,
             # so we just verify it's importable and callable
             assert async_icap_client is not None
@@ -208,7 +208,7 @@ def test_mock_icap_client_timeout_fixture(pytester):
     pytester.makepyfile(
         """
         import pytest
-        from py_cap.exception import IcapTimeoutError
+        from icap.exception import IcapTimeoutError
 
         def test_timeout(mock_icap_client_timeout):
             with pytest.raises(IcapTimeoutError):
@@ -224,7 +224,7 @@ def test_mock_icap_client_connection_error_fixture(pytester):
     pytester.makepyfile(
         """
         import pytest
-        from py_cap.exception import IcapConnectionError
+        from icap.exception import IcapConnectionError
 
         def test_connection_error(mock_icap_client_connection_error):
             with pytest.raises(IcapConnectionError):
@@ -242,7 +242,7 @@ def test_icap_response_builder_fixture(pytester):
     """Verify icap_response_builder fixture provides a builder instance."""
     pytester.makepyfile(
         """
-        from pytest_py_cap import IcapResponseBuilder
+        from icap.pytest_plugin import IcapResponseBuilder
 
         def test_builder(icap_response_builder):
             assert isinstance(icap_response_builder, IcapResponseBuilder)
@@ -335,7 +335,7 @@ def test_icap_mock_marker_raises_exception(pytester):
     pytester.makepyfile(
         """
         import pytest
-        from py_cap.exception import IcapTimeoutError
+        from icap.exception import IcapTimeoutError
 
         @pytest.mark.icap_mock(raises=IcapTimeoutError)
         def test_timeout(icap_mock):
@@ -396,7 +396,7 @@ def test_mock_client_custom_response_configuration(pytester):
     """Verify mock client can be configured with custom responses."""
     pytester.makepyfile(
         """
-        from pytest_py_cap import IcapResponseBuilder
+        from icap.pytest_plugin import IcapResponseBuilder
 
         def test_custom_config(mock_icap_client):
             # Configure custom virus response
@@ -416,7 +416,7 @@ def test_mock_client_context_manager(pytester):
     """Verify mock client works as context manager."""
     pytester.makepyfile(
         """
-        from pytest_py_cap import MockIcapClient
+        from icap.pytest_plugin import MockIcapClient
 
         def test_context_manager():
             with MockIcapClient() as client:
@@ -434,7 +434,7 @@ def test_response_builder_fluent_api(pytester):
     """Verify IcapResponseBuilder fluent API works correctly."""
     pytester.makepyfile(
         """
-        from pytest_py_cap import IcapResponseBuilder
+        from icap.pytest_plugin import IcapResponseBuilder
 
         def test_fluent_builder():
             response = (
@@ -457,17 +457,17 @@ def test_plugin_exports_mock_components(pytester):
     """Verify the plugin exports mock components."""
     pytester.makepyfile(
         """
-        import pytest_py_cap
+        import icap.pytest_plugin as pytest_plugin
 
         def test_mock_exports():
-            assert hasattr(pytest_py_cap, "IcapResponseBuilder")
-            assert hasattr(pytest_py_cap, "MockIcapClient")
-            assert hasattr(pytest_py_cap, "MockAsyncIcapClient")
-            assert hasattr(pytest_py_cap, "MockCall")
-            assert hasattr(pytest_py_cap, "mock_icap_client")
-            assert hasattr(pytest_py_cap, "mock_async_icap_client")
-            assert hasattr(pytest_py_cap, "icap_response_builder")
-            assert hasattr(pytest_py_cap, "icap_mock")
+            assert hasattr(pytest_plugin, "IcapResponseBuilder")
+            assert hasattr(pytest_plugin, "MockIcapClient")
+            assert hasattr(pytest_plugin, "MockAsyncIcapClient")
+            assert hasattr(pytest_plugin, "MockCall")
+            assert hasattr(pytest_plugin, "mock_icap_client")
+            assert hasattr(pytest_plugin, "mock_async_icap_client")
+            assert hasattr(pytest_plugin, "icap_response_builder")
+            assert hasattr(pytest_plugin, "icap_mock")
         """
     )
     result = pytester.runpytest()
@@ -589,7 +589,7 @@ def test_stacked_icap_response_markers_exhaustion(pytester):
     pytester.makepyfile(
         """
         import pytest
-        from pytest_py_cap import MockResponseExhaustedError
+        from icap.pytest_plugin import MockResponseExhaustedError
 
         @pytest.mark.icap_response("clean")
         @pytest.mark.icap_response("virus")
@@ -610,7 +610,7 @@ def test_icap_response_marker_with_response_object(pytester):
     pytester.makepyfile(
         """
         import pytest
-        from pytest_py_cap import IcapResponseBuilder
+        from icap.pytest_plugin import IcapResponseBuilder
 
         custom_response = IcapResponseBuilder().with_status(418, "I'm a teapot").build()
 
@@ -630,7 +630,7 @@ def test_icap_response_marker_mixed_presets_and_objects(pytester):
     pytester.makepyfile(
         """
         import pytest
-        from pytest_py_cap import IcapResponseBuilder
+        from icap.pytest_plugin import IcapResponseBuilder
 
         custom = IcapResponseBuilder().with_status(418, "I'm a teapot").build()
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Integration test script for PyCap with Docker ICAP server.
+Integration test script for python-icap with Docker ICAP server.
 
 This script tests the ICAP client against a real c-icap server with ClamAV.
 Run this after starting the Docker services with docker-compose.
@@ -11,7 +11,7 @@ import time
 
 from test_utils import EICAR_TEST_STRING
 
-from py_cap import IcapClient
+from icap import IcapClient
 
 
 def test_connection(host="localhost", port=1344, service="avscan"):
@@ -113,7 +113,7 @@ def test_large_content(host="localhost", port=1344, service="avscan"):
 
 def main():
     print("=" * 60)
-    print("PyCap Integration Tests")
+    print("python-icap Integration Tests")
     print("=" * 60)
     print("\nMake sure Docker services are running:")
     print("  docker-compose -f docker/docker-compose.yml up -d")

@@ -47,7 +47,7 @@ class AsyncIcapClient(IcapProtocol):
 
     Example:
         >>> import asyncio
-        >>> from py_cap import AsyncIcapClient
+        >>> from icap import AsyncIcapClient
         >>>
         >>> async def scan():
         ...     async with AsyncIcapClient('localhost') as client:

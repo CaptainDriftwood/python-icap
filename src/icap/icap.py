@@ -44,7 +44,7 @@ class IcapClient(IcapProtocol):
         or use connection pooling.
 
     Example:
-        >>> from py_cap import IcapClient
+        >>> from icap import IcapClient
         >>>
         >>> # Recommended: use context manager for automatic cleanup
         >>> with IcapClient('localhost', port=1344) as client:
