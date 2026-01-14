@@ -29,9 +29,9 @@ def typecheck(session: nox.Session) -> None:
     session.run("ty", "check", "src/icap")
 
 
-@nox.session(python="3.8")
+@nox.session(python=PYTHON_VERSIONS)
 def coverage(session: nox.Session) -> None:
-    """Run tests with coverage on Python 3.8 (lowest supported version)."""
+    """Run tests with coverage on specified Python version."""
     session.install("-e", ".")
     session.install(
         "pytest",
