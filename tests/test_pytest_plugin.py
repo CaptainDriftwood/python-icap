@@ -650,3 +650,183 @@ def test_icap_response_marker_mixed_presets_and_objects(pytester):
     )
     result = pytester.runpytest("--strict-markers")
     result.assert_outcomes(passed=1)
+
+
+# =============================================================================
+# Direct unit tests for plugin code coverage
+# (pytester tests run in subprocess so don't contribute to coverage)
+# =============================================================================
+
+
+def test_resolve_marker_response_clean_preset():
+    """Test _resolve_marker_response with clean preset."""
+    from unittest.mock import MagicMock
+
+    from icap.pytest_plugin import _resolve_marker_response
+
+    marker = MagicMock()
+    marker.args = ("clean",)
+    marker.kwargs = {}
+
+    response = _resolve_marker_response(marker)
+    assert response.status_code == 204
+    assert response.is_no_modification
+
+
+def test_resolve_marker_response_virus_preset():
+    """Test _resolve_marker_response with virus preset."""
+    from unittest.mock import MagicMock
+
+    from icap.pytest_plugin import _resolve_marker_response
+
+    marker = MagicMock()
+    marker.args = ("virus",)
+    marker.kwargs = {"virus_name": "Test.Virus"}
+
+    response = _resolve_marker_response(marker)
+    assert response.status_code == 200
+    assert response.headers["X-Virus-ID"] == "Test.Virus"
+
+
+def test_resolve_marker_response_error_preset():
+    """Test _resolve_marker_response with error preset."""
+    from unittest.mock import MagicMock
+
+    from icap.pytest_plugin import _resolve_marker_response
+
+    marker = MagicMock()
+    marker.args = ("error",)
+    marker.kwargs = {"code": 503, "message": "Service Unavailable"}
+
+    response = _resolve_marker_response(marker)
+    assert response.status_code == 503
+    assert response.status_message == "Service Unavailable"
+
+
+def test_resolve_marker_response_response_object():
+    """Test _resolve_marker_response with IcapResponse instance."""
+    from unittest.mock import MagicMock
+
+    from icap import IcapResponse
+    from icap.pytest_plugin import _resolve_marker_response
+
+    custom_response = IcapResponse(418, "I'm a teapot", {}, b"")
+
+    marker = MagicMock()
+    marker.args = (custom_response,)
+    marker.kwargs = {}
+
+    response = _resolve_marker_response(marker)
+    assert response is custom_response
+    assert response.status_code == 418
+
+
+def test_resolve_marker_response_kwarg_response():
+    """Test _resolve_marker_response with response kwarg."""
+    from unittest.mock import MagicMock
+
+    from icap import IcapResponse
+    from icap.pytest_plugin import _resolve_marker_response
+
+    custom_response = IcapResponse(201, "Created", {}, b"")
+
+    marker = MagicMock()
+    marker.args = ()
+    marker.kwargs = {"response": custom_response}
+
+    response = _resolve_marker_response(marker)
+    assert response is custom_response
+
+
+def test_resolve_marker_response_invalid_preset():
+    """Test _resolve_marker_response with invalid preset raises ValueError."""
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from icap.pytest_plugin import _resolve_marker_response
+
+    marker = MagicMock()
+    marker.args = ("invalid_preset",)
+    marker.kwargs = {}
+
+    with pytest.raises(ValueError, match="Unknown icap_response preset"):
+        _resolve_marker_response(marker)
+
+
+def test_resolve_marker_response_no_args_no_response():
+    """Test _resolve_marker_response with no valid arguments raises ValueError."""
+    from unittest.mock import MagicMock
+
+    import pytest
+
+    from icap.pytest_plugin import _resolve_marker_response
+
+    marker = MagicMock()
+    marker.args = ()
+    marker.kwargs = {}
+
+    with pytest.raises(ValueError, match="Invalid icap_response marker"):
+        _resolve_marker_response(marker)
+
+
+def test_builder_virus_default_name():
+    """Test IcapResponseBuilder.virus with default name."""
+    from icap.pytest_plugin import IcapResponseBuilder
+
+    response = IcapResponseBuilder().virus().build()
+    assert response.headers["X-Virus-ID"] == "EICAR-Test-Signature"
+
+
+def test_builder_error_default_values():
+    """Test IcapResponseBuilder.error with default values."""
+    from icap.pytest_plugin import IcapResponseBuilder
+
+    response = IcapResponseBuilder().error().build()
+    assert response.status_code == 500
+    assert response.status_message == "Internal Server Error"
+
+
+def test_builder_options_default_methods():
+    """Test IcapResponseBuilder.options with default methods."""
+    from icap.pytest_plugin import IcapResponseBuilder
+
+    response = IcapResponseBuilder().options().build()
+    assert response.status_code == 200
+    assert "RESPMOD" in response.headers["Methods"]
+    assert "REQMOD" in response.headers["Methods"]
+
+
+def test_builder_options_custom_methods():
+    """Test IcapResponseBuilder.options with custom methods."""
+    from icap.pytest_plugin import IcapResponseBuilder
+
+    response = IcapResponseBuilder().options(["RESPMOD"]).build()
+    assert "RESPMOD" in response.headers["Methods"]
+    assert "REQMOD" not in response.headers["Methods"]
+
+
+def test_builder_continue_response():
+    """Test IcapResponseBuilder.continue_response."""
+    from icap.pytest_plugin import IcapResponseBuilder
+
+    response = IcapResponseBuilder().continue_response().build()
+    assert response.status_code == 100
+    assert response.status_message == "Continue"
+
+
+def test_builder_with_headers():
+    """Test IcapResponseBuilder.with_headers."""
+    from icap.pytest_plugin import IcapResponseBuilder
+
+    response = IcapResponseBuilder().with_headers({"X-Custom": "value", "X-Other": "test"}).build()
+    assert response.headers["X-Custom"] == "value"
+    assert response.headers["X-Other"] == "test"
+
+
+def test_builder_with_body():
+    """Test IcapResponseBuilder.with_body."""
+    from icap.pytest_plugin import IcapResponseBuilder
+
+    response = IcapResponseBuilder().with_body(b"test body").build()
+    assert response.body == b"test body"

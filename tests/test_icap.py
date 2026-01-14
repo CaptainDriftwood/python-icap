@@ -174,3 +174,102 @@ def test_async_client_ssl_context_defaults_to_none():
     """Test that ssl_context defaults to None for async client."""
     client = AsyncIcapClient("localhost", 1344)
     assert client._ssl_context is None
+
+
+# =============================================================================
+# IcapProtocol base class tests
+# =============================================================================
+
+
+def test_protocol_constants():
+    """Test IcapProtocol class constants."""
+    from icap._protocol import IcapProtocol
+
+    assert IcapProtocol.DEFAULT_PORT == 1344
+    assert IcapProtocol.CRLF == "\r\n"
+    assert IcapProtocol.ICAP_VERSION == "ICAP/1.0"
+    assert IcapProtocol.BUFFER_SIZE == 8192
+    assert IcapProtocol.USER_AGENT == "Python-ICAP-Client/1.0"
+
+
+def test_protocol_build_request():
+    """Test IcapProtocol._build_request method."""
+    from icap._protocol import IcapProtocol
+
+    protocol = IcapProtocol()
+    request_line = "OPTIONS icap://localhost:1344/avscan ICAP/1.0\r\n"
+    headers = {"Host": "localhost:1344", "User-Agent": "Test"}
+
+    result = protocol._build_request(request_line, headers)
+
+    assert isinstance(result, bytes)
+    assert b"OPTIONS icap://localhost:1344/avscan ICAP/1.0\r\n" in result
+    assert b"Host: localhost:1344\r\n" in result
+    assert b"User-Agent: Test\r\n" in result
+
+
+def test_protocol_build_http_request_header_with_filename():
+    """Test _build_http_request_header with filename."""
+    from icap._protocol import IcapProtocol
+
+    protocol = IcapProtocol()
+    result = protocol._build_http_request_header("test.txt")
+
+    assert result == b"GET /test.txt HTTP/1.1\r\nHost: file-scan\r\n\r\n"
+
+
+def test_protocol_build_http_request_header_without_filename():
+    """Test _build_http_request_header without filename."""
+    from icap._protocol import IcapProtocol
+
+    protocol = IcapProtocol()
+    result = protocol._build_http_request_header(None)
+
+    assert result == b"GET /scan HTTP/1.1\r\nHost: file-scan\r\n\r\n"
+
+
+def test_protocol_build_http_response_header():
+    """Test _build_http_response_header method."""
+    from icap._protocol import IcapProtocol
+
+    protocol = IcapProtocol()
+    result = protocol._build_http_response_header(100)
+
+    assert b"HTTP/1.1 200 OK\r\n" in result
+    assert b"Content-Type: application/octet-stream\r\n" in result
+    assert b"Content-Length: 100\r\n" in result
+
+
+def test_protocol_build_http_response_header_chunked():
+    """Test _build_http_response_header_chunked method."""
+    from icap._protocol import IcapProtocol
+
+    protocol = IcapProtocol()
+    result = protocol._build_http_response_header_chunked()
+
+    assert b"HTTP/1.1 200 OK\r\n" in result
+    assert b"Transfer-Encoding: chunked\r\n" in result
+
+
+def test_protocol_encode_chunked():
+    """Test _encode_chunked static method."""
+    from icap._protocol import IcapProtocol
+
+    result = IcapProtocol._encode_chunked(b"Hello")
+    assert result == b"5\r\nHello\r\n"
+
+
+def test_protocol_encode_chunked_empty():
+    """Test _encode_chunked with empty data."""
+    from icap._protocol import IcapProtocol
+
+    result = IcapProtocol._encode_chunked(b"")
+    assert result == b""
+
+
+def test_protocol_encode_chunk_terminator():
+    """Test _encode_chunk_terminator static method."""
+    from icap._protocol import IcapProtocol
+
+    result = IcapProtocol._encode_chunk_terminator()
+    assert result == b"0\r\n\r\n"

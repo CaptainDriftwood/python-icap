@@ -930,3 +930,167 @@ async def test_async_context_manager():
 
     # After exiting, should be disconnected
     assert client.is_connected is False
+
+
+# =============================================================================
+# Response body handling tests - covering lines 691-718 in icap.py
+# =============================================================================
+
+
+def test_receive_response_with_large_body_multiple_recvs():
+    """Test receiving response with body split across multiple recv calls."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # Body is 20 bytes but comes in chunks
+    mock_socket.recv.side_effect = [
+        b"ICAP/1.0 200 OK\r\nContent-Length: 20\r\n\r\nHello",  # 5 bytes of body
+        b" World",  # 6 bytes
+        b" Test!!!!",  # 9 bytes, total = 20
+    ]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client._receive_response()
+
+    assert response.status_code == 200
+    assert response.body == b"Hello World Test!!!!"
+
+
+def test_send_and_receive_with_content_length_body():
+    """Test _send_and_receive handles Content-Length response bodies."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # Response with body
+    body_content = b"This is a response body with content"
+    response_data = (
+        f"ICAP/1.0 200 OK\r\nContent-Length: {len(body_content)}\r\n\r\n"
+    ).encode() + body_content
+
+    mock_socket.recv.return_value = response_data
+    mock_socket.sendall = MagicMock()
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client._send_and_receive(b"OPTIONS icap://test ICAP/1.0\r\n\r\n")
+
+    assert response.status_code == 200
+    assert body_content in response.body
+
+
+def test_send_and_receive_with_chunked_body():
+    """Test _send_and_receive handles chunked transfer encoding."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # Chunked response: "Hello" (5 bytes) + "World" (5 bytes)
+    response_data = (
+        b"ICAP/1.0 200 OK\r\n"
+        b"Transfer-Encoding: chunked\r\n"
+        b"\r\n"
+        b"5\r\nHello\r\n"
+        b"5\r\nWorld\r\n"
+        b"0\r\n\r\n"
+    )
+    mock_socket.recv.return_value = response_data
+    mock_socket.sendall = MagicMock()
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client._send_and_receive(b"OPTIONS icap://test ICAP/1.0\r\n\r\n")
+
+    assert response.status_code == 200
+
+
+def test_receive_response_body_split_at_header_boundary():
+    """Test response where body arrives in separate recv from headers."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.side_effect = [
+        b"ICAP/1.0 200 OK\r\nContent-Length: 10\r\n\r\n",  # Headers only, no body yet
+        b"0123456789",  # Body comes separately
+    ]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client._receive_response()
+
+    assert response.status_code == 200
+    assert response.body == b"0123456789"
+
+
+# =============================================================================
+# Async response body handling tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_async_receive_response_with_content_length():
+    """Test async response handling with Content-Length body."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    body = b"Async response body content"
+    response = f"ICAP/1.0 200 OK\r\nContent-Length: {len(body)}\r\n\r\n".encode() + body
+    mock_reader.read.return_value = response
+
+    mock_writer = MagicMock()
+    mock_writer.write = MagicMock()
+    mock_writer.drain = AsyncMock()
+
+    client._reader = mock_reader
+    client._writer = mock_writer
+
+    result = await client._send_and_receive(b"OPTIONS icap://test ICAP/1.0\r\n\r\n")
+
+    assert result.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_async_receive_response_with_chunked_body():
+    """Test async response handling with chunked transfer encoding."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    response = b"ICAP/1.0 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n"
+    mock_reader.read.return_value = response
+
+    mock_writer = MagicMock()
+    mock_writer.write = MagicMock()
+    mock_writer.drain = AsyncMock()
+
+    client._reader = mock_reader
+    client._writer = mock_writer
+
+    result = await client._send_and_receive(b"OPTIONS icap://test ICAP/1.0\r\n\r\n")
+
+    assert result.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_async_receive_response_body_in_multiple_reads():
+    """Test async response where body requires multiple reads."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 200 OK\r\nContent-Length: 15\r\n\r\nHello",
+        b" World!!!!",  # Remaining 10 bytes
+    ]
+
+    mock_writer = MagicMock()
+    mock_writer.write = MagicMock()
+    mock_writer.drain = AsyncMock()
+
+    client._reader = mock_reader
+    client._writer = mock_writer
+
+    result = await client._send_and_receive(b"OPTIONS icap://test ICAP/1.0\r\n\r\n")
+
+    assert result.status_code == 200
