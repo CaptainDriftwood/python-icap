@@ -1,5 +1,5 @@
 """
-Pytest plugin for testing code that uses the PyCap ICAP client.
+Pytest plugin for testing code that uses the python-icap ICAP client.
 
 This plugin provides fixtures, mocks, and builders for testing ICAP integrations
 without requiring a live ICAP server. It supports both synchronous and asynchronous
@@ -93,8 +93,8 @@ from typing import Any, AsyncGenerator, Generator
 
 import pytest
 
-from py_cap import AsyncIcapClient, IcapClient, IcapResponse
-from py_cap.exception import IcapConnectionError, IcapTimeoutError
+from icap import AsyncIcapClient, IcapClient, IcapResponse
+from icap.exception import IcapConnectionError, IcapTimeoutError
 
 from .builder import IcapResponseBuilder
 from .mock import (

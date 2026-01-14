@@ -2,7 +2,7 @@
 
 import pytest
 
-from py_cap import AsyncIcapClient, IcapClient
+from icap import AsyncIcapClient, IcapClient
 
 # EICAR test string for virus detection
 EICAR_TEST_STRING = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"

@@ -1,13 +1,13 @@
-# Contributing to py-cap
+# Contributing to python-icap
 
-Thank you for your interest in contributing to py-cap!
+Thank you for your interest in contributing to python-icap!
 
 ## Development Setup
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/CaptainDriftwood/py-cap.git
-   cd py_cap
+   git clone https://github.com/CaptainDriftwood/python-icap.git
+   cd python-icap
    ```
 
 2. **Install uv** (if not already installed)

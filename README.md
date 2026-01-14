@@ -1,13 +1,13 @@
 <p align="center">
-  <img src=".github/assets/logo.svg" alt="py-cap logo" width="450">
+  <img src=".github/assets/logo.svg" alt="python-icap logo" width="450">
 </p>
-<h1 align="center">py-cap</h1>
+<h1 align="center">python-icap</h1>
 
-[![Tests](https://github.com/CaptainDriftwood/py-cap/actions/workflows/test.yml/badge.svg)](https://github.com/CaptainDriftwood/py-cap/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/CaptainDriftwood/py-cap/graph/badge.svg)](https://codecov.io/gh/CaptainDriftwood/py-cap)
-[![Lint](https://github.com/CaptainDriftwood/py-cap/actions/workflows/lint.yml/badge.svg)](https://github.com/CaptainDriftwood/py-cap/actions/workflows/lint.yml)
-[![Type Check](https://github.com/CaptainDriftwood/py-cap/actions/workflows/typecheck.yml/badge.svg)](https://github.com/CaptainDriftwood/py-cap/actions/workflows/typecheck.yml)
-[![CodeQL](https://github.com/CaptainDriftwood/py-cap/actions/workflows/codeql.yml/badge.svg)](https://github.com/CaptainDriftwood/py-cap/actions/workflows/codeql.yml)
+[![Tests](https://github.com/CaptainDriftwood/python-icap/actions/workflows/test.yml/badge.svg)](https://github.com/CaptainDriftwood/python-icap/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/CaptainDriftwood/python-icap/graph/badge.svg)](https://codecov.io/gh/CaptainDriftwood/python-icap)
+[![Lint](https://github.com/CaptainDriftwood/python-icap/actions/workflows/lint.yml/badge.svg)](https://github.com/CaptainDriftwood/python-icap/actions/workflows/lint.yml)
+[![Type Check](https://github.com/CaptainDriftwood/python-icap/actions/workflows/typecheck.yml/badge.svg)](https://github.com/CaptainDriftwood/python-icap/actions/workflows/typecheck.yml)
+[![CodeQL](https://github.com/CaptainDriftwood/python-icap/actions/workflows/codeql.yml/badge.svg)](https://github.com/CaptainDriftwood/python-icap/actions/workflows/codeql.yml)
 
 [![Python 3.8 | 3.9 | 3.10 | 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -67,7 +67,7 @@ A pure Python ICAP (Internet Content Adaptation Protocol) client with no externa
 
 ## Overview
 
-py-cap provides a clean, Pythonic API for integrating ICAP into your applications:
+python-icap provides a clean, Pythonic API for integrating ICAP into your applications:
 
 - **Sync and async clients** - Both `IcapClient` and `AsyncIcapClient` with full API parity
 - **High-level file scanning** - Simple `scan_file()`, `scan_bytes()`, and `scan_stream()` methods
@@ -203,7 +203,7 @@ pip install -e .
 ### Basic Example
 
 ```python
-from py_cap import IcapClient
+from icap import IcapClient
 
 # Create client and connect
 client = IcapClient('localhost', port=1344)
@@ -220,7 +220,7 @@ client.disconnect()
 ### Using Context Manager
 
 ```python
-from py_cap import IcapClient
+from icap import IcapClient
 
 # Automatically handles connection/disconnection
 with IcapClient('localhost', port=1344) as client:
@@ -231,7 +231,7 @@ with IcapClient('localhost', port=1344) as client:
 ### Scanning Content with RESPMOD
 
 ```python
-from py_cap import IcapClient
+from icap import IcapClient
 
 # HTTP request headers
 http_request = b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n"
@@ -259,7 +259,7 @@ with IcapClient('localhost', port=1344) as client:
 The library provides convenient methods for scanning files directly:
 
 ```python
-from py_cap import IcapClient
+from icap import IcapClient
 from pathlib import Path
 
 # Scan a file by path (string)
@@ -295,7 +295,7 @@ with IcapClient('localhost') as client:
 ### Manual File Scanning (lower-level API)
 
 ```python
-from py_cap import IcapClient
+from icap import IcapClient
 
 def scan_file(filepath, icap_host='localhost', service='avscan'):
     """Scan a file using ICAP (lower-level approach)."""
@@ -324,13 +324,13 @@ else:
 
 ## Async Usage
 
-Pycap includes an async client (`AsyncIcapClient`) for use with `asyncio`. The async client provides the same API as the sync client but with `async`/`await` syntax.
+python-icap includes an async client (`AsyncIcapClient`) for use with `asyncio`. The async client provides the same API as the sync client but with `async`/`await` syntax.
 
 ### Basic Async Example
 
 ```python
 import asyncio
-from py_cap import AsyncIcapClient
+from icap import AsyncIcapClient
 
 async def main():
     async with AsyncIcapClient('localhost', port=1344) as client:
@@ -352,7 +352,7 @@ The async client enables scanning multiple files concurrently for improved throu
 
 ```python
 import asyncio
-from py_cap import AsyncIcapClient
+from icap import AsyncIcapClient
 
 async def scan_file(filepath: str) -> tuple[str, bool]:
     """Scan a single file and return (filepath, is_clean)."""
@@ -388,7 +388,7 @@ Both sync and async clients support SSL/TLS encryption for secure connections to
 
 ```python
 import ssl
-from py_cap import IcapClient
+from icap import IcapClient
 
 # Create SSL context with system CA certificates
 ssl_context = ssl.create_default_context()
@@ -402,7 +402,7 @@ with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
 
 ```python
 import ssl
-from py_cap import IcapClient
+from icap import IcapClient
 
 # Use a custom CA certificate
 ssl_context = ssl.create_default_context(cafile='/path/to/ca.pem')
@@ -415,7 +415,7 @@ with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
 
 ```python
 import ssl
-from py_cap import IcapClient
+from icap import IcapClient
 
 # Create context with client certificate for mutual TLS
 ssl_context = ssl.create_default_context()
@@ -433,7 +433,7 @@ with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
 ```python
 import asyncio
 import ssl
-from py_cap import AsyncIcapClient
+from icap import AsyncIcapClient
 
 async def secure_scan():
     ssl_context = ssl.create_default_context()
@@ -451,7 +451,7 @@ The library uses Python's standard `logging` module. Configure it to see detaile
 
 ```python
 import logging
-from py_cap import IcapClient
+from icap import IcapClient
 
 # Enable debug logging
 logging.basicConfig(level=logging.DEBUG)
@@ -466,8 +466,8 @@ with IcapClient('localhost') as client:
 The library provides specific exceptions for different failure modes:
 
 ```python
-from py_cap import IcapClient
-from py_cap.exception import (
+from icap import IcapClient
+from icap.exception import (
     IcapException,
     IcapConnectionError,
     IcapTimeoutError,
@@ -501,7 +501,7 @@ except IcapException as e:
 The [EICAR test string](https://www.eicar.org/download-anti-malware-testfile/) is a standard way to test antivirus detection without using actual malware:
 
 ```python
-from py_cap import IcapClient
+from icap import IcapClient
 
 # EICAR test string - triggers antivirus detection
 EICAR = b'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
@@ -573,7 +573,7 @@ uv run pytest -m "not integration"
 uv run ruff check
 
 # Run type checker
-uv run ty check py_cap
+uv run ty check src/icap
 ```
 
 Or using just (run `just` to see all available commands):
@@ -589,15 +589,15 @@ just ci           # Run full CI checks (fmt, lint, typecheck, test)
 ### Project Structure
 
 ```
-py-cap/
-├── py_cap/
+python-icap/
+├── src/icap/
 │   ├── __init__.py       # Package exports
 │   ├── icap.py           # Synchronous ICAP client
 │   ├── async_icap.py     # Asynchronous ICAP client
 │   ├── _protocol.py      # Shared protocol constants
 │   ├── response.py       # Response handling
 │   └── exception.py      # Custom exceptions
-├── pytest_py_cap/        # Pytest plugin for ICAP testing
+├── pytest_src/icap/        # Pytest plugin for ICAP testing
 ├── tests/                # Unit tests
 ├── examples/             # Usage examples
 ├── docker/               # Docker setup for integration testing
@@ -609,9 +609,9 @@ py-cap/
 
 ## Pytest Plugin
 
-py-cap includes a pytest plugin (`pytest_py_cap`) that provides fixtures and mocks for testing ICAP integrations without requiring a live ICAP server.
+python-icap includes a pytest plugin (icap.pytest_plugin) that provides fixtures and mocks for testing ICAP integrations without requiring a live ICAP server.
 
-The plugin is automatically registered when py-cap is installed (via the `pytest11` entry point).
+The plugin is automatically registered when python-icap is installed (via the `pytest11` entry point).
 
 ### Live Client Fixtures
 
@@ -710,7 +710,7 @@ def test_with_response_fixtures(icap_response_clean, icap_response_virus):
 Fluent builder for creating custom `IcapResponse` objects:
 
 ```python
-from pytest_py_cap import IcapResponseBuilder
+from icap.pytest_plugin import IcapResponseBuilder
 
 # Clean response (204 No Modification)
 response = IcapResponseBuilder().clean().build()
@@ -754,8 +754,8 @@ response = (
 The `MockIcapClient` provides a full mock implementation with configurable responses, call recording, and rich assertions:
 
 ```python
-from pytest_py_cap import MockIcapClient, IcapResponseBuilder
-from py_cap.exception import IcapTimeoutError
+from icap.pytest_plugin import MockIcapClient, IcapResponseBuilder
+from icap.exception import IcapTimeoutError
 
 # Create and configure mock
 client = MockIcapClient()
@@ -909,7 +909,7 @@ The `@pytest.mark.icap_mock` marker provides declarative mock configuration:
 
 ```python
 import pytest
-from py_cap.exception import IcapTimeoutError
+from icap.exception import IcapTimeoutError
 
 # Configure clean response
 @pytest.mark.icap_mock(response="clean")

@@ -23,7 +23,7 @@ Classes:
     MockResponseExhaustedError: Raised when all queued responses are consumed.
 
 Basic Example:
-    >>> from pytest_py_cap import MockIcapClient, IcapResponseBuilder
+    >>> from icap.pytest_plugin import MockIcapClient, IcapResponseBuilder
     >>>
     >>> # Create mock with default clean responses
     >>> client = MockIcapClient()
@@ -58,7 +58,7 @@ Content Matcher Example:
     >>> client.scan_bytes(b"data", filename="doc.pdf").is_no_modification  # True
 
 See Also:
-    pytest_py_cap: Main package with fixtures and builders.
+    icap.pytest_plugin: Main package with fixtures and builders.
     IcapResponseBuilder: Fluent builder for creating test responses.
 """
 
@@ -70,12 +70,12 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, BinaryIO, Protocol
+from typing import TYPE_CHECKING, Any, BinaryIO, Protocol, cast
 
 from .builder import IcapResponseBuilder
 
 if TYPE_CHECKING:
-    from py_cap import IcapResponse
+    from icap import IcapResponse
 
 
 class ResponseCallback(Protocol):
@@ -708,7 +708,7 @@ class MockIcapClient:
         >>> client.scan_bytes(b"safe", filename="app.exe").is_no_modification  # False
 
     Example - Exception injection:
-        >>> from py_cap.exception import IcapTimeoutError
+        >>> from icap.exception import IcapTimeoutError
         >>> client = MockIcapClient()
         >>> client.on_any(raises=IcapTimeoutError("Connection timed out"))
         >>> client.scan_bytes(b"content")  # Raises IcapTimeoutError
@@ -2031,9 +2031,11 @@ class MockAsyncIcapClient(MockIcapClient):
             self._callback_used[method] = True
             # Check if callback is async and await if needed
             if inspect.iscoroutinefunction(callback):
-                result = await callback(**call_kwargs)
+                async_callback = cast(AsyncResponseCallback, callback)
+                result = await async_callback(**call_kwargs)
             else:
-                result = callback(**call_kwargs)
+                sync_callback = cast(ResponseCallback, callback)
+                result = sync_callback(**call_kwargs)
             return result, "callback"
 
         queue = self._response_queues[method]

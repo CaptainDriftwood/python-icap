@@ -1,4 +1,4 @@
-"""Tests for pytest_py_cap mock functionality."""
+"""Tests for icap.pytest_plugin mock functionality."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ import io
 
 import pytest
 
-from py_cap import IcapResponse
-from py_cap.exception import IcapConnectionError, IcapTimeoutError
-from pytest_py_cap import (
+from icap import IcapResponse
+from icap.exception import IcapConnectionError, IcapTimeoutError
+from icap.pytest_plugin import (
     IcapResponseBuilder,
     MockAsyncIcapClient,
     MockCall,

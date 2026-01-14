@@ -1,12 +1,12 @@
 """
-Unit tests for PyCap ICAP client using pytest.
+Unit tests for python-icap ICAP client using pytest.
 """
 
 import ssl
 
 import pytest
 
-from py_cap import AsyncIcapClient, IcapClient, IcapResponse
+from icap import AsyncIcapClient, IcapClient, IcapResponse
 
 # IcapResponse tests
 

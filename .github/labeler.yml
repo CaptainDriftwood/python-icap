@@ -23,8 +23,8 @@ ci:
 python:
   - changed-files:
       - any-glob-to-any-file:
-          - 'py_cap/**/*.py'
-          - 'pytest_py_cap/**/*.py'
+          - 'src/icap/**/*.py'
+          - 'src/icap/pytest_plugin/**/*.py'
 
 dependencies:
   - changed-files:

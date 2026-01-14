@@ -15,7 +15,7 @@ Describe what you'd like to see implemented.
 **Example**
 ```python
 # Optional: Show how you'd imagine using this feature
-from py_cap import IcapClient
+from icap import IcapClient
 
 with IcapClient('localhost') as client:
     # ...

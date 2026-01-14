@@ -1,5 +1,5 @@
 """
-Integration tests for PyCap using testcontainers.
+Integration tests for python-icap using testcontainers.
 
 Wait Strategy Note:
     testcontainers emits a DeprecationWarning recommending migration from
@@ -29,7 +29,7 @@ Wait Strategy Note:
 import pytest
 
 from examples.test_utils import EICAR_TEST_STRING
-from py_cap import IcapClient
+from icap import IcapClient
 
 
 @pytest.mark.integration
