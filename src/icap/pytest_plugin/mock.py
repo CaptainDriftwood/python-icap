@@ -70,7 +70,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, BinaryIO, Protocol
+from typing import TYPE_CHECKING, Any, BinaryIO, Protocol, cast
 
 from .builder import IcapResponseBuilder
 
@@ -2031,9 +2031,11 @@ class MockAsyncIcapClient(MockIcapClient):
             self._callback_used[method] = True
             # Check if callback is async and await if needed
             if inspect.iscoroutinefunction(callback):
-                result = await callback(**call_kwargs)
+                async_callback = cast(AsyncResponseCallback, callback)
+                result = await async_callback(**call_kwargs)
             else:
-                result = callback(**call_kwargs)
+                sync_callback = cast(ResponseCallback, callback)
+                result = sync_callback(**call_kwargs)
             return result, "callback"
 
         queue = self._response_queues[method]
