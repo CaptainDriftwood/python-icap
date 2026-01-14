@@ -637,3 +637,296 @@ def test_is_connected_property_exists():
     assert hasattr(async_client, "is_connected")
     assert sync_client.is_connected is False
     assert async_client.is_connected is False
+
+
+# =============================================================================
+# Async client unit tests with mocked I/O
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_async_options_basic():
+    """Test basic async OPTIONS request."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = AsyncMock()
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 200 OK\r\nMethods: RESPMOD, REQMOD\r\nAllow: 204\r\nPreview: 1024\r\n\r\n",
+        b"",
+    ]
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+    client._connected = True
+
+    response = await client.options("avscan")
+
+    assert response.status_code == 200
+    # Verify OPTIONS request was sent
+    sent_data = mock_writer.write.call_args[0][0]
+    assert b"OPTIONS" in sent_data
+    assert b"null-body=0" in sent_data
+
+
+@pytest.mark.asyncio
+async def test_async_options_auto_connects(mocker):
+    """Test that async options auto-connects if not connected."""
+    client = AsyncIcapClient("localhost", 1344)
+    client._connected = False
+
+    mock_writer = AsyncMock()
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [b"ICAP/1.0 200 OK\r\n\r\n", b""]
+
+    async def set_connected():
+        client._writer = mock_writer
+        client._reader = mock_reader
+        client._connected = True
+
+    mock_connect = mocker.patch.object(client, "connect", side_effect=set_connected)
+
+    response = await client.options("avscan")
+
+    mock_connect.assert_called_once()
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_async_respmod_basic():
+    """Test basic async RESPMOD request."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = AsyncMock()
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 200 OK\r\nEncapsulated: res-hdr=0\r\n\r\n",
+        b"",
+    ]
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+    client._connected = True
+
+    http_request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+    http_response = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html>body</html>"
+
+    response = await client.respmod("avscan", http_request, http_response)
+
+    assert response.status_code == 200
+    sent_data = mock_writer.write.call_args[0][0]
+    assert b"RESPMOD" in sent_data
+
+
+@pytest.mark.asyncio
+async def test_async_reqmod_basic():
+    """Test basic async REQMOD request."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = AsyncMock()
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 200 OK\r\n\r\n",
+        b"",
+    ]
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+    client._connected = True
+
+    http_request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+
+    response = await client.reqmod("avscan", http_request)
+
+    assert response.status_code == 200
+    sent_data = mock_writer.write.call_args[0][0]
+    assert b"REQMOD" in sent_data
+
+
+@pytest.mark.asyncio
+async def test_async_scan_bytes_basic():
+    """Test async scan_bytes method."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = AsyncMock()
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 204 No Content\r\n\r\n",
+        b"",
+    ]
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+    client._connected = True
+
+    response = await client.scan_bytes(b"clean file content", service="avscan")
+
+    assert response.status_code == 204
+    assert response.is_no_modification
+
+
+@pytest.mark.asyncio
+async def test_async_scan_bytes_with_filename():
+    """Test async scan_bytes with custom filename."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = AsyncMock()
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 204 No Content\r\n\r\n",
+        b"",
+    ]
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+    client._connected = True
+
+    response = await client.scan_bytes(b"clean file content", service="avscan", filename="test.pdf")
+
+    assert response.status_code == 204
+    sent_data = mock_writer.write.call_args[0][0]
+    assert b"test.pdf" in sent_data
+
+
+@pytest.mark.asyncio
+async def test_async_scan_file_basic(mocker, tmp_path):
+    """Test async scan_file method."""
+    # Create a temporary test file
+    test_file = tmp_path / "test.txt"
+    test_file.write_bytes(b"test file content")
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = AsyncMock()
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 204 No Content\r\n\r\n",
+        b"",
+    ]
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+    client._connected = True
+
+    response = await client.scan_file(str(test_file), service="avscan")
+
+    assert response.status_code == 204
+    assert response.is_no_modification
+
+
+@pytest.mark.asyncio
+async def test_async_scan_file_not_found():
+    """Test async scan_file with non-existent file."""
+    client = AsyncIcapClient("localhost", 1344)
+    client._connected = True
+
+    with pytest.raises(FileNotFoundError):
+        await client.scan_file("/nonexistent/path/file.txt", service="avscan")
+
+
+@pytest.mark.asyncio
+async def test_async_send_with_preview_complete_in_preview():
+    """Test async preview mode when entire body fits in preview size."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = AsyncMock()
+    mock_reader = AsyncMock()
+    # Server responds with 204 (no modification needed)
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 204 No Content\r\n\r\n",
+        b"",
+    ]
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+
+    # Build a proper ICAP request with headers
+    request = (
+        b"RESPMOD icap://localhost:1344/avscan ICAP/1.0\r\n"
+        b"Host: localhost:1344\r\n"
+        b"Encapsulated: res-body=0\r\n"
+        b"Preview: 1024\r\n"
+        b"\r\n"
+    )
+    body = b"small"
+    response = await client._send_with_preview(request, body, preview_size=1024)
+
+    assert response.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_async_send_with_preview_requires_continue():
+    """Test async preview mode when server requests remaining body."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = AsyncMock()
+    mock_reader = AsyncMock()
+    # First response: 100 Continue, then 204 No Content
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 100 Continue\r\n\r\n",
+        b"ICAP/1.0 204 No Content\r\n\r\n",
+        b"",
+    ]
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+
+    # Build request and large body
+    request = (
+        b"RESPMOD icap://localhost:1344/avscan ICAP/1.0\r\n"
+        b"Host: localhost:1344\r\n"
+        b"Encapsulated: res-body=0\r\n"
+        b"Preview: 1024\r\n"
+        b"\r\n"
+    )
+    body = b"x" * 2000
+    response = await client._send_with_preview(request, body, preview_size=1024)
+
+    assert response.status_code == 204
+    # Should have written multiple times (preview + remaining)
+    assert mock_writer.write.call_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_async_disconnect():
+    """Test async disconnect method."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = MagicMock()
+    mock_writer.close = MagicMock()
+    mock_writer.wait_closed = AsyncMock()
+    mock_reader = AsyncMock()
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+
+    await client.disconnect()
+
+    assert client.is_connected is False
+    assert client._writer is None
+    assert client._reader is None
+    mock_writer.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_async_context_manager():
+    """Test async context manager protocol."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = MagicMock()
+    mock_writer.close = MagicMock()
+    mock_writer.wait_closed = AsyncMock()
+    mock_reader = AsyncMock()
+
+    async def mock_connect():
+        client._writer = mock_writer
+        client._reader = mock_reader
+
+    client.connect = mock_connect
+
+    async with client as ctx:
+        assert ctx is client
+        assert client.is_connected is True
+
+    # After exiting, should be disconnected
+    assert client.is_connected is False
