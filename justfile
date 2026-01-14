@@ -29,6 +29,10 @@ test-all *args:
 test-all-versions *args:
     uv run nox -s tests {{ args }}
 
+# Run tests with coverage (Python 3.8)
+coverage *args:
+    uv run nox -s coverage {{ args }}
+
 # Run tests for a specific Python version
 test-version version *args:
     uv run nox -s tests-{{ version }} {{ args }}

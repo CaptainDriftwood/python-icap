@@ -36,15 +36,15 @@ jobs:
       run: uv sync --all-extras
 
     - name: Run unit tests
-      if: matrix.python-version != '3.12'
+      if: matrix.python-version != '3.8'
       run: uv run pytest -v -m "not integration"
 
     - name: Run unit tests with coverage
-      if: matrix.python-version == '3.12'
-      run: uv run pytest -v -m "not integration" --cov=icap --cov-report=xml
+      if: matrix.python-version == '3.8'
+      run: uv run pytest -v -m "not integration" --cov=src/icap --cov-report=xml
 
     - name: Upload coverage to Codecov
-      if: matrix.python-version == '3.12'
+      if: matrix.python-version == '3.8'
       uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
