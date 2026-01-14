@@ -443,3 +443,357 @@ def test_async_scan_stream_has_chunk_size_parameter():
 
     assert "chunk_size" in params
     assert sig.parameters["chunk_size"].default == 0
+
+
+# =============================================================================
+# Connection error handling tests
+# =============================================================================
+
+
+def test_connect_timeout_raises_timeout_error(mocker):
+    """Test that socket timeout during connect raises IcapTimeoutError."""
+    import socket
+
+    from icap.exception import IcapTimeoutError
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = mocker.MagicMock()
+    mock_socket.connect.side_effect = socket.timeout("Connection timed out")
+    mocker.patch("socket.socket", return_value=mock_socket)
+
+    with pytest.raises(IcapTimeoutError) as exc_info:
+        client.connect()
+
+    assert "timed out" in str(exc_info.value)
+    assert not client.is_connected
+
+
+def test_connect_ssl_error_raises_connection_error(mocker):
+    """Test that SSL error during connect raises IcapConnectionError."""
+    import ssl
+
+    from icap.exception import IcapConnectionError
+
+    # Create client with SSL context
+    ssl_context = mocker.MagicMock(spec=ssl.SSLContext)
+    ssl_context.wrap_socket.side_effect = ssl.SSLError("SSL handshake failed")
+
+    client = IcapClient("localhost", 1344, ssl_context=ssl_context)
+
+    mock_socket = mocker.MagicMock()
+    mocker.patch("socket.socket", return_value=mock_socket)
+
+    with pytest.raises(IcapConnectionError) as exc_info:
+        client.connect()
+
+    assert "SSL error" in str(exc_info.value)
+    assert not client.is_connected
+
+
+def test_disconnect_handles_oserror_gracefully(mocker):
+    """Test that OSError during disconnect is handled gracefully."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = mocker.MagicMock()
+    mock_socket.close.side_effect = OSError("Socket already closed")
+    mocker.patch("socket.socket", return_value=mock_socket)
+
+    client.connect()
+    assert client.is_connected
+
+    # Should not raise, just log warning
+    client.disconnect()
+    assert not client.is_connected
+
+
+def test_scan_stream_chunked_timeout_raises_timeout_error():
+    """Test that socket timeout during chunked stream scan raises IcapTimeoutError."""
+    import socket
+    from io import BytesIO
+
+    from icap.exception import IcapTimeoutError
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # First sendall succeeds (initial request), second times out (chunk data)
+    mock_socket.sendall.side_effect = [None, socket.timeout("Send timed out")]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    # Use chunk_size > 0 to force chunked transfer path
+    stream = BytesIO(b"test content for scanning")
+
+    with pytest.raises(IcapTimeoutError) as exc_info:
+        client.scan_stream(stream, service="avscan", chunk_size=1024)
+
+    assert "timed out" in str(exc_info.value)
+
+
+def test_scan_stream_chunked_oserror_raises_connection_error():
+    """Test that OSError during chunked stream scan raises IcapConnectionError."""
+    from io import BytesIO
+
+    from icap.exception import IcapConnectionError
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # First sendall succeeds, second raises OSError
+    mock_socket.sendall.side_effect = [None, OSError("Connection reset by peer")]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    stream = BytesIO(b"test content for scanning")
+
+    with pytest.raises(IcapConnectionError) as exc_info:
+        client.scan_stream(stream, service="avscan", chunk_size=1024)
+
+    assert "Connection error" in str(exc_info.value)
+    assert not client.is_connected
+
+
+# =============================================================================
+# Property accessor tests
+# =============================================================================
+
+
+def test_host_property_returns_address():
+    """Test that host property returns the configured address."""
+    client = IcapClient("icap.example.com", 1344)
+    assert client.host == "icap.example.com"
+
+
+def test_port_property_returns_port():
+    """Test that port property returns the configured port."""
+    client = IcapClient("localhost", 9999)
+    assert client.port == 9999
+
+
+def test_port_setter_with_valid_int():
+    """Test that port setter accepts valid integer."""
+    client = IcapClient("localhost", 1344)
+    client.port = 8080
+    assert client.port == 8080
+
+
+def test_port_setter_with_invalid_type_raises_type_error():
+    """Test that port setter raises TypeError for non-integer."""
+    client = IcapClient("localhost", 1344)
+
+    with pytest.raises(TypeError) as exc_info:
+        client.port = "not-an-int"
+
+    assert "not a valid type" in str(exc_info.value)
+
+
+# =============================================================================
+# Async error handling tests
+# =============================================================================
+
+
+async def test_async_connect_timeout_raises_timeout_error(mocker):
+    """Test that asyncio timeout during connect raises IcapTimeoutError."""
+    import asyncio
+
+    from icap import AsyncIcapClient
+    from icap.exception import IcapTimeoutError
+
+    mocker.patch(
+        "asyncio.open_connection",
+        side_effect=asyncio.TimeoutError("Connection timed out"),
+    )
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    with pytest.raises(IcapTimeoutError) as exc_info:
+        await client.connect()
+
+    assert "timed out" in str(exc_info.value)
+    assert not client.is_connected
+
+
+async def test_async_connect_ssl_error_raises_connection_error(mocker):
+    """Test that SSL error during async connect raises IcapConnectionError."""
+    import ssl
+
+    from icap import AsyncIcapClient
+    from icap.exception import IcapConnectionError
+
+    mocker.patch(
+        "asyncio.open_connection",
+        side_effect=ssl.SSLError("SSL handshake failed"),
+    )
+
+    ssl_context = mocker.MagicMock(spec=ssl.SSLContext)
+    client = AsyncIcapClient("localhost", 1344, ssl_context=ssl_context)
+
+    with pytest.raises(IcapConnectionError) as exc_info:
+        await client.connect()
+
+    assert "SSL error" in str(exc_info.value)
+    assert not client.is_connected
+
+
+async def test_async_disconnect_handles_oserror_gracefully(mocker):
+    """Test that OSError during async disconnect is handled gracefully."""
+    from icap import AsyncIcapClient
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    # Mock the writer to raise OSError on wait_closed
+    mock_writer = mocker.MagicMock()
+    mock_writer.close = mocker.MagicMock()
+    mock_writer.wait_closed = mocker.AsyncMock(side_effect=OSError("Socket already closed"))
+
+    mock_reader = mocker.MagicMock()
+
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+    assert client.is_connected
+
+    # Should not raise, just log warning and clean up
+    await client.disconnect()
+    assert not client.is_connected
+
+
+async def test_async_host_property_returns_address():
+    """Test that async client host property returns the configured address."""
+    from icap import AsyncIcapClient
+
+    client = AsyncIcapClient("icap.example.com", 1344)
+    assert client.host == "icap.example.com"
+
+
+async def test_async_port_property_returns_port():
+    """Test that async client port property returns the configured port."""
+    from icap import AsyncIcapClient
+
+    client = AsyncIcapClient("localhost", 9999)
+    assert client.port == 9999
+
+
+async def test_async_scan_stream_io_error_raises_protocol_error(mocker):
+    """Test that IOError during async stream.read raises IcapProtocolError."""
+    from icap import AsyncIcapClient
+    from icap.exception import IcapProtocolError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    # Mock connection
+    mock_writer = mocker.MagicMock()
+    mock_reader = mocker.MagicMock()
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    # Create a mock stream that raises OSError on read
+    mock_stream = mocker.MagicMock()
+    mock_stream.read.side_effect = OSError("Disk read error")
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        await client.scan_stream(mock_stream)
+
+    assert "Failed to read from stream" in str(exc_info.value)
+
+
+async def test_async_iter_chunks_io_error_raises_protocol_error(mocker):
+    """Test that IOError during async chunked stream read raises IcapProtocolError."""
+    from icap import AsyncIcapClient
+    from icap.exception import IcapProtocolError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    # Mock connection
+    mock_writer = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+    mock_reader = mocker.MagicMock()
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    # Create a mock stream that raises OSError on read
+    mock_stream = mocker.MagicMock()
+    mock_stream.read.side_effect = OSError("Device not ready")
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        # Use chunk_size > 0 to trigger _iter_chunks path
+        await client.scan_stream(mock_stream, chunk_size=1024)
+
+    assert "Failed to read from stream" in str(exc_info.value)
+
+
+async def test_async_scan_stream_chunked_timeout_raises_timeout_error(mocker):
+    """Test that timeout during async chunked stream scan raises IcapTimeoutError."""
+    import asyncio
+    from io import BytesIO
+
+    from icap import AsyncIcapClient
+    from icap.exception import IcapTimeoutError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    # Mock connection
+    mock_writer = mocker.MagicMock()
+    # write raises timeout error
+    mock_writer.write.side_effect = [None, asyncio.TimeoutError("Send timed out")]
+    mock_writer.drain = mocker.AsyncMock()
+
+    mock_reader = mocker.MagicMock()
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    stream = BytesIO(b"test content for scanning")
+
+    with pytest.raises(IcapTimeoutError) as exc_info:
+        await client.scan_stream(stream, chunk_size=1024)
+
+    assert "timed out" in str(exc_info.value)
+
+
+async def test_async_scan_stream_chunked_oserror_raises_connection_error(mocker):
+    """Test that OSError during async chunked stream scan raises IcapConnectionError."""
+    from io import BytesIO
+
+    from icap import AsyncIcapClient
+    from icap.exception import IcapConnectionError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    # Mock connection
+    mock_writer = mocker.MagicMock()
+    # First write succeeds, second raises OSError
+    mock_writer.write.side_effect = [None, OSError("Connection reset by peer")]
+    mock_writer.drain = mocker.AsyncMock()
+
+    mock_reader = mocker.MagicMock()
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    stream = BytesIO(b"test content for scanning")
+
+    with pytest.raises(IcapConnectionError) as exc_info:
+        await client.scan_stream(stream, chunk_size=1024)
+
+    assert "Connection error" in str(exc_info.value)

@@ -495,7 +495,7 @@ class AsyncIcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
-        if not self._connected:
+        if not self.is_connected:
             await self.connect()
 
         if self._writer is None or self._reader is None:
