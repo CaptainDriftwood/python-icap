@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/logo.svg" alt="python-icap logo" width="450">
+  <img src="https://raw.githubusercontent.com/CaptainDriftwood/python-icap/master/.github/assets/logo.svg" alt="python-icap logo" width="450">
 </p>
 <h1 align="center">python-icap</h1>
 
@@ -7,7 +7,7 @@
 [![codecov](https://codecov.io/gh/CaptainDriftwood/python-icap/graph/badge.svg)](https://codecov.io/gh/CaptainDriftwood/python-icap)
 [![Lint](https://github.com/CaptainDriftwood/python-icap/actions/workflows/lint.yml/badge.svg)](https://github.com/CaptainDriftwood/python-icap/actions/workflows/lint.yml)
 [![Type Check](https://github.com/CaptainDriftwood/python-icap/actions/workflows/typecheck.yml/badge.svg)](https://github.com/CaptainDriftwood/python-icap/actions/workflows/typecheck.yml)
-[![CodeQL](https://github.com/CaptainDriftwood/python-icap/actions/workflows/codeql.yml/badge.svg)](https://github.com/CaptainDriftwood/python-icap/actions/workflows/codeql.yml)
+[![CodeQL](https://github.com/CaptainDriftwood/python-icap/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/CaptainDriftwood/python-icap/security/code-scanning)
 
 [![Python 3.8 | 3.9 | 3.10 | 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
