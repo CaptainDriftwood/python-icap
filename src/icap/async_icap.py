@@ -299,13 +299,10 @@ class AsyncIcapClient(IcapProtocol):
 
         # Add encapsulated body with chunked transfer encoding
         if http_res_body:
-            chunk_size = f"{len(http_res_body):X}{self.CRLF}"
-            request += chunk_size.encode()
-            request += http_res_body
-            request += f"{self.CRLF}".encode()
+            request += self._encode_chunked(http_res_body)
 
         # Terminating zero-length chunk
-        request += f"0{self.CRLF}{self.CRLF}".encode()
+        request += self._encode_chunk_terminator()
 
         response = await self._send_and_receive(request)
         logger.debug(f"RESPMOD response: {response.status_code} {response.status_message}")
@@ -359,10 +356,8 @@ class AsyncIcapClient(IcapProtocol):
         request += http_request
 
         if http_body:
-            chunk_size = f"{len(http_body):X}"
-            request += f"{chunk_size}{self.CRLF}".encode()
-            request += http_body
-            request += f"{self.CRLF}0{self.CRLF}{self.CRLF}".encode()
+            request += self._encode_chunked(http_body)
+            request += self._encode_chunk_terminator()
 
         response = await self._send_and_receive(request)
         logger.debug(f"REQMOD response: {response.status_code} {response.status_message}")
@@ -474,17 +469,9 @@ class AsyncIcapClient(IcapProtocol):
         """
         logger.info(f"Scanning bytes ({len(data)} bytes){f' - {filename}' if filename else ''}")
 
-        # Build HTTP request headers
-        resource = f"/{filename}" if filename else "/scan"
-        http_request = f"GET {resource} HTTP/1.1\r\nHost: file-scan\r\n\r\n".encode()
-
-        # Build HTTP response with bytes content
-        http_response = (
-            f"HTTP/1.1 200 OK\r\n"
-            f"Content-Type: application/octet-stream\r\n"
-            f"Content-Length: {len(data)}\r\n"
-            f"\r\n"
-        ).encode() + data
+        # Build HTTP request and response headers using base class methods
+        http_request = self._build_http_request_header(filename)
+        http_response = self._build_http_response_header(len(data)) + data
 
         return await self.respmod(service, http_request, http_response)
 
@@ -523,17 +510,9 @@ class AsyncIcapClient(IcapProtocol):
             f"RESPMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
         )
 
-        # Build HTTP request headers (encapsulated)
-        resource = f"/{filename}" if filename else "/scan"
-        http_request = f"GET {resource} HTTP/1.1\r\nHost: file-scan\r\n\r\n".encode()
-
-        # Build HTTP response headers (we'll use chunked transfer encoding)
-        http_response_headers = (
-            b"HTTP/1.1 200 OK\r\n"
-            b"Content-Type: application/octet-stream\r\n"
-            b"Transfer-Encoding: chunked\r\n"
-            b"\r\n"
-        )
+        # Build HTTP request and response headers using base class methods
+        http_request = self._build_http_request_header(filename)
+        http_response_headers = self._build_http_response_header_chunked()
 
         # Calculate encapsulated offsets
         req_hdr_len = len(http_request)
@@ -564,7 +543,7 @@ class AsyncIcapClient(IcapProtocol):
                 await self._writer.drain()
                 total_bytes += len(chunk)
 
-            self._writer.write(b"0\r\n\r\n")
+            self._writer.write(self._encode_chunk_terminator())
             await self._writer.drain()
             logger.debug(f"Sent {total_bytes} bytes in chunked encoding")
 
@@ -830,14 +809,13 @@ class AsyncIcapClient(IcapProtocol):
             # Build the preview chunk
             # Per RFC 3507 Section 4.5, use "ieof" extension on the zero-length
             # terminator chunk when the entire body fits in preview
-            chunk_header = f"{len(preview_data):X}{self.CRLF}".encode()
-            preview_chunk = chunk_header + preview_data + f"{self.CRLF}".encode()
+            preview_chunk = self._encode_chunked(preview_data)
             if is_complete:
                 # Use ieof on zero-length chunk to indicate no more data
-                preview_chunk += f"0; ieof{self.CRLF}{self.CRLF}".encode()
+                preview_chunk += b"0; ieof\r\n\r\n"
             else:
                 # Normal zero-length terminator for preview section
-                preview_chunk += f"0{self.CRLF}{self.CRLF}".encode()
+                preview_chunk += self._encode_chunk_terminator()
 
             # Send request with preview
             self._writer.write(request + preview_chunk)
@@ -853,12 +831,10 @@ class AsyncIcapClient(IcapProtocol):
 
                 # Send the remainder of the body
                 if remainder_data:
-                    chunk_header = f"{len(remainder_data):X}{self.CRLF}".encode()
-                    remainder_chunk = chunk_header + remainder_data + f"{self.CRLF}".encode()
-                    self._writer.write(remainder_chunk)
+                    self._writer.write(self._encode_chunked(remainder_data))
 
                 # Send final zero-length chunk
-                self._writer.write(f"0{self.CRLF}{self.CRLF}".encode())
+                self._writer.write(self._encode_chunk_terminator())
                 await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
                 # Receive final response
