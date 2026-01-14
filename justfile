@@ -29,6 +29,30 @@ test-all *args:
 test-all-versions *args:
     uv run nox -s tests {{ args }}
 
+# Run tests with coverage (defaults to Python 3.8)
+coverage *args:
+    uv run nox -s coverage-3.8 {{ args }}
+
+# Run tests with coverage for a specific Python version
+coverage-version version *args:
+    uv run nox -s coverage-{{ version }} {{ args }}
+
+# Run coverage like CI (with Docker integration tests, Python 3.8)
+# Generates SSL certs if missing, starts Docker, runs all tests
+coverage-ci *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f docker/certs/ca.pem ]; then
+        echo "Generating SSL certificates..."
+        just generate-certs
+    fi
+    echo "Starting ICAP server..."
+    docker compose -f docker/docker-compose.yml up -d
+    echo "Waiting for services to initialize..."
+    sleep 30
+    trap "echo 'Stopping ICAP server...'; docker compose -f docker/docker-compose.yml down" EXIT
+    uv run --python 3.8 pytest --cov=src/icap --cov-report=term-missing --cov-report=xml {{ args }}
+
 # Run tests for a specific Python version
 test-version version *args:
     uv run nox -s tests-{{ version }} {{ args }}

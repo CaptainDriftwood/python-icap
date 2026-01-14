@@ -117,6 +117,13 @@ dev = [
 source = ["icap"]
 branch = true
 parallel = true
+omit = [
+    # Import-time only files - class/import definitions execute before coverage starts
+    # due to pytest plugin loading order
+    "*/icap/__init__.py",
+    "*/icap/exception.py",
+    "*/icap/pytest_plugin/plugin.py",
+]
 
 [tool.coverage.report]
 exclude_lines = [

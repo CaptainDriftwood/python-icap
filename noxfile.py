@@ -27,3 +27,26 @@ def typecheck(session: nox.Session) -> None:
     """Run type checking."""
     session.install("-e", ".[dev]")
     session.run("ty", "check", "src/icap")
+
+
+@nox.session(python=PYTHON_VERSIONS)
+def coverage(session: nox.Session) -> None:
+    """Run tests with coverage on specified Python version."""
+    session.install("-e", ".")
+    session.install(
+        "pytest",
+        "pytest-cov",
+        "pytest-asyncio",
+        "pytest-mock",
+        "pytest-timeout",
+        "testcontainers",
+    )
+    session.run(
+        "pytest",
+        "-m",
+        "not integration",
+        "--cov=src/icap",
+        "--cov-report=term-missing",
+        "--cov-report=xml",
+        *session.posargs,
+    )
