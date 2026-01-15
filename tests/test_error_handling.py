@@ -1027,9 +1027,7 @@ async def test_async_scan_bytes_auto_connects(mocker):
     mock_writer.drain = mocker.AsyncMock()
 
     mock_reader = mocker.MagicMock()
-    mock_reader.read = mocker.AsyncMock(
-        return_value=b"ICAP/1.0 204 No Modification\r\n\r\n"
-    )
+    mock_reader.read = mocker.AsyncMock(return_value=b"ICAP/1.0 204 No Modification\r\n\r\n")
 
     mocker.patch(
         "asyncio.open_connection",
