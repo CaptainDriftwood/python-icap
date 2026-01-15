@@ -969,8 +969,6 @@ async def test_async_receive_response_timeout_during_body_raises_timeout_error(m
         "asyncio.open_connection",
         return_value=(mock_reader, mock_writer),
     )
-    # Patch asyncio.wait_for to just call the coroutine or raise the side effect
-    original_wait_for = asyncio.wait_for
 
     async def mock_wait_for(coro, timeout):
         return await coro
