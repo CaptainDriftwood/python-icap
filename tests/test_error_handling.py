@@ -445,11 +445,6 @@ def test_async_scan_stream_has_chunk_size_parameter():
     assert sig.parameters["chunk_size"].default == 0
 
 
-# =============================================================================
-# Connection error handling tests
-# =============================================================================
-
-
 def test_connect_timeout_raises_timeout_error(mocker):
     """Test that socket timeout during connect raises IcapTimeoutError."""
     import socket
@@ -556,11 +551,6 @@ def test_scan_stream_chunked_oserror_raises_connection_error():
     assert not client.is_connected
 
 
-# =============================================================================
-# Property accessor tests
-# =============================================================================
-
-
 def test_host_property_returns_address():
     """Test that host property returns the configured address."""
     client = IcapClient("icap.example.com", 1344)
@@ -588,11 +578,6 @@ def test_port_setter_with_invalid_type_raises_type_error():
         client.port = "not-an-int"
 
     assert "not a valid type" in str(exc_info.value)
-
-
-# =============================================================================
-# Async error handling tests
-# =============================================================================
 
 
 async def test_async_connect_timeout_raises_timeout_error(mocker):

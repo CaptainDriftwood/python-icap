@@ -176,11 +176,6 @@ def test_async_client_ssl_context_defaults_to_none():
     assert client._ssl_context is None
 
 
-# =============================================================================
-# IcapProtocol base class tests
-# =============================================================================
-
-
 def test_protocol_constants():
     """Test IcapProtocol class constants."""
     from icap._protocol import IcapProtocol
@@ -273,11 +268,6 @@ def test_protocol_encode_chunk_terminator():
 
     result = IcapProtocol._encode_chunk_terminator()
     assert result == b"0\r\n\r\n"
-
-
-# =============================================================================
-# IcapResponse tests
-# =============================================================================
 
 
 def test_response_repr():

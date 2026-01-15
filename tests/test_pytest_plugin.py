@@ -652,12 +652,6 @@ def test_icap_response_marker_mixed_presets_and_objects(pytester):
     result.assert_outcomes(passed=1)
 
 
-# =============================================================================
-# Direct unit tests for plugin code coverage
-# (pytester tests run in subprocess so don't contribute to coverage)
-# =============================================================================
-
-
 def test_resolve_marker_response_clean_preset():
     """Test _resolve_marker_response with clean preset."""
     from unittest.mock import MagicMock

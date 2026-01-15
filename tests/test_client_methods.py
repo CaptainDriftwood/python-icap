@@ -639,11 +639,6 @@ def test_is_connected_property_exists():
     assert async_client.is_connected is False
 
 
-# =============================================================================
-# Async client unit tests with mocked I/O
-# =============================================================================
-
-
 @pytest.mark.asyncio
 async def test_async_options_basic():
     """Test basic async OPTIONS request."""
@@ -932,11 +927,6 @@ async def test_async_context_manager():
     assert client.is_connected is False
 
 
-# =============================================================================
-# Response body handling tests - covering lines 691-718 in icap.py
-# =============================================================================
-
-
 def test_receive_response_with_large_body_multiple_recvs():
     """Test receiving response with body split across multiple recv calls."""
     client = IcapClient("localhost", 1344)
@@ -1025,11 +1015,6 @@ def test_receive_response_body_split_at_header_boundary():
     assert response.body == b"0123456789"
 
 
-# =============================================================================
-# Async response body handling tests
-# =============================================================================
-
-
 @pytest.mark.asyncio
 async def test_async_receive_response_with_content_length():
     """Test async response handling with Content-Length body."""
@@ -1094,11 +1079,6 @@ async def test_async_receive_response_body_in_multiple_reads():
     result = await client._send_and_receive(b"OPTIONS icap://test ICAP/1.0\r\n\r\n")
 
     assert result.status_code == 200
-
-
-# =============================================================================
-# Additional edge case tests
-# =============================================================================
 
 
 @pytest.mark.asyncio
