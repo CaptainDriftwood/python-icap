@@ -2023,3 +2023,152 @@ def test_marker_strict_mode_with_on_any_response(icap_mock):
     icap_mock.scan_bytes(b"file1")
     icap_mock.scan_bytes(b"file2")  # on_any responses are reusable
     # Test should pass - on_any is not a queue, always passes
+
+
+# === Additional Async Mock Client Method Tests ===
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_options():
+    """Async mock options() method works correctly."""
+    client = MockAsyncIcapClient()
+    client.on_options(IcapResponseBuilder().options(methods=["RESPMOD", "REQMOD"]).build())
+
+    response = await client.options("avscan")
+
+    assert response.status_code == 200
+    assert response.headers["Methods"] == "RESPMOD, REQMOD"
+    client.assert_called("options", times=1)
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_respmod():
+    """Async mock respmod() method works correctly."""
+    client = MockAsyncIcapClient()
+    client.on_respmod(IcapResponseBuilder().virus("Test.Virus").build())
+
+    response = await client.respmod(
+        "avscan",
+        b"GET / HTTP/1.1\r\n",
+        b"HTTP/1.1 200 OK\r\n\r\nBody",
+    )
+
+    assert not response.is_no_modification
+    assert response.headers["X-Virus-ID"] == "Test.Virus"
+    client.assert_called("respmod", times=1)
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_reqmod():
+    """Async mock reqmod() method works correctly."""
+    client = MockAsyncIcapClient()
+    client.on_reqmod(IcapResponseBuilder().clean().build())
+
+    response = await client.reqmod(
+        "avscan",
+        b"POST /upload HTTP/1.1\r\n",
+        http_body=b"file content",
+    )
+
+    assert response.is_no_modification
+    client.assert_called("reqmod", times=1)
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_scan_file(tmp_path):
+    """Async mock scan_file() method works correctly."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_bytes(b"test file content")
+
+    client = MockAsyncIcapClient()
+    client.on_respmod(IcapResponseBuilder().virus("File.Virus").build())
+
+    response = await client.scan_file(test_file)
+
+    assert not response.is_no_modification
+    client.assert_called("scan_file", times=1)
+    assert client.last_call.kwargs["data"] == b"test file content"
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_scan_file_not_found():
+    """Async mock scan_file() raises FileNotFoundError for missing files."""
+    client = MockAsyncIcapClient()
+
+    with pytest.raises(FileNotFoundError):
+        await client.scan_file("/nonexistent/file.txt")
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_scan_stream():
+    """Async mock scan_stream() method works correctly."""
+    stream = io.BytesIO(b"stream content here")
+
+    client = MockAsyncIcapClient()
+    client.on_respmod(IcapResponseBuilder().clean().build())
+
+    response = await client.scan_stream(stream, filename="stream.bin")
+
+    assert response.is_no_modification
+    client.assert_called("scan_stream", times=1)
+    assert client.last_call.kwargs["data"] == b"stream content here"
+    assert client.last_call.kwargs["filename"] == "stream.bin"
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_connect_disconnect():
+    """Async mock connect() and disconnect() work correctly."""
+    client = MockAsyncIcapClient()
+
+    assert not client.is_connected
+    await client.connect()
+    assert client.is_connected
+    await client.disconnect()
+    assert not client.is_connected
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_respmod_with_preview():
+    """Async mock respmod() handles preview parameter."""
+    client = MockAsyncIcapClient()
+
+    response = await client.respmod(
+        "avscan",
+        b"GET / HTTP/1.1\r\n",
+        b"HTTP/1.1 200 OK\r\n\r\nBody",
+        preview=1024,
+    )
+
+    assert response.is_no_modification
+    assert client.last_call.kwargs["preview"] == 1024
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_respmod_with_headers():
+    """Async mock respmod() handles headers parameter."""
+    client = MockAsyncIcapClient()
+
+    response = await client.respmod(
+        "avscan",
+        b"GET / HTTP/1.1\r\n",
+        b"HTTP/1.1 200 OK\r\n\r\nBody",
+        headers={"X-Custom": "value"},
+    )
+
+    assert response.is_no_modification
+    assert client.last_call.kwargs["headers"] == {"X-Custom": "value"}
+
+
+@pytest.mark.asyncio
+async def test_async_mock_client_reqmod_with_headers():
+    """Async mock reqmod() handles headers parameter."""
+    client = MockAsyncIcapClient()
+
+    response = await client.reqmod(
+        "avscan",
+        b"POST / HTTP/1.1\r\n",
+        headers={"X-Custom": "value"},
+    )
+
+    assert response.is_no_modification
+    assert client.last_call.kwargs["headers"] == {"X-Custom": "value"}

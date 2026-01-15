@@ -797,3 +797,249 @@ async def test_async_scan_stream_chunked_oserror_raises_connection_error(mocker)
         await client.scan_stream(stream, chunk_size=1024)
 
     assert "Connection error" in str(exc_info.value)
+
+
+async def test_async_send_and_receive_connection_reset_raises_connection_error(mocker):
+    """Test that ConnectionResetError during async send raises IcapConnectionError."""
+    from icap import AsyncIcapClient
+    from icap.exception import IcapConnectionError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    # Mock connection
+    mock_writer = mocker.MagicMock()
+    mock_writer.write.side_effect = ConnectionResetError("Connection reset by peer")
+    mock_writer.drain = mocker.AsyncMock()
+    mock_writer.close = mocker.MagicMock()
+
+    mock_reader = mocker.MagicMock()
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    with pytest.raises(IcapConnectionError) as exc_info:
+        await client._send_and_receive(b"test request")
+
+    assert "Connection error" in str(exc_info.value)
+
+
+async def test_async_send_and_receive_broken_pipe_raises_connection_error(mocker):
+    """Test that BrokenPipeError during async send raises IcapConnectionError."""
+    from icap import AsyncIcapClient
+    from icap.exception import IcapConnectionError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.write.side_effect = BrokenPipeError("Broken pipe")
+    mock_writer.drain = mocker.AsyncMock()
+    mock_writer.close = mocker.MagicMock()
+
+    mock_reader = mocker.MagicMock()
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    with pytest.raises(IcapConnectionError) as exc_info:
+        await client._send_and_receive(b"test request")
+
+    assert "Connection error" in str(exc_info.value)
+
+
+async def test_async_receive_response_invalid_content_length_raises_protocol_error(mocker):
+    """Test that invalid Content-Length raises IcapProtocolError in async client."""
+    from icap import AsyncIcapClient
+    from icap.exception import IcapProtocolError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.write = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+
+    mock_reader = mocker.MagicMock()
+    mock_reader.read = mocker.AsyncMock(
+        return_value=b"ICAP/1.0 200 OK\r\nContent-Length: not-a-number\r\n\r\nbody"
+    )
+
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        await client._send_and_receive(b"test request")
+
+    assert "Invalid Content-Length" in str(exc_info.value)
+
+
+async def test_async_receive_response_incomplete_body_raises_protocol_error(mocker):
+    """Test that incomplete body raises IcapProtocolError in async client."""
+    from icap import AsyncIcapClient
+    from icap.exception import IcapProtocolError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.write = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+
+    mock_reader = mocker.MagicMock()
+    # First read returns headers with Content-Length: 100, second read returns partial body then EOF
+    mock_reader.read = mocker.AsyncMock(
+        side_effect=[
+            b"ICAP/1.0 200 OK\r\nContent-Length: 100\r\n\r\npartial",
+            b"",  # Connection closed before all bytes received
+        ]
+    )
+
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        await client._send_and_receive(b"test request")
+
+    assert "Incomplete response" in str(exc_info.value)
+
+
+async def test_async_send_and_receive_server_error_raises_server_error(mocker):
+    """Test that 5xx response raises IcapServerError in async client."""
+    from icap import AsyncIcapClient
+    from icap.exception import IcapServerError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.write = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+
+    mock_reader = mocker.MagicMock()
+    mock_reader.read = mocker.AsyncMock(
+        return_value=b"ICAP/1.0 500 Internal Server Error\r\nServer: Test\r\n\r\n"
+    )
+
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    with pytest.raises(IcapServerError) as exc_info:
+        await client._send_and_receive(b"test request")
+
+    assert "500" in str(exc_info.value)
+
+
+async def test_async_receive_response_timeout_during_body_raises_timeout_error(mocker):
+    """Test that timeout during body read raises IcapTimeoutError in async client."""
+    import asyncio
+
+    from icap import AsyncIcapClient
+    from icap.exception import IcapTimeoutError
+
+    client = AsyncIcapClient("localhost", 1344, timeout=0.1)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.write = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+
+    mock_reader = mocker.MagicMock()
+    # First read returns headers, second read times out
+    mock_reader.read = mocker.AsyncMock(
+        side_effect=[
+            b"ICAP/1.0 200 OK\r\nContent-Length: 100\r\n\r\npartial",
+            asyncio.TimeoutError("Read timed out"),
+        ]
+    )
+
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+    # Patch asyncio.wait_for to just call the coroutine or raise the side effect
+    original_wait_for = asyncio.wait_for
+
+    async def mock_wait_for(coro, timeout):
+        return await coro
+
+    mocker.patch("asyncio.wait_for", mock_wait_for)
+
+    await client.connect()
+
+    with pytest.raises(IcapTimeoutError) as exc_info:
+        await client._receive_response()
+
+    assert "Timeout" in str(exc_info.value)
+
+
+async def test_async_chunked_body_connection_closed_raises_protocol_error(mocker):
+    """Test that connection closed during async chunked body raises IcapProtocolError."""
+    from icap import AsyncIcapClient
+    from icap.exception import IcapProtocolError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.write = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+
+    mock_reader = mocker.MagicMock()
+    # First read returns chunked headers, second read returns partial chunk, third returns EOF
+    mock_reader.read = mocker.AsyncMock(
+        side_effect=[
+            b"ICAP/1.0 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello",
+            b"",  # Connection closed before chunk terminator
+        ]
+    )
+
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    await client.connect()
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        await client._receive_response()
+
+    assert "Connection closed before chunked body complete" in str(exc_info.value)
+
+
+async def test_async_scan_bytes_auto_connects(mocker):
+    """Test that async scan_bytes auto-connects if not connected."""
+    from icap import AsyncIcapClient
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.write = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+
+    mock_reader = mocker.MagicMock()
+    mock_reader.read = mocker.AsyncMock(
+        return_value=b"ICAP/1.0 204 No Modification\r\n\r\n"
+    )
+
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    # Should auto-connect and complete the scan
+    assert not client.is_connected
+    response = await client.scan_bytes(b"test content")
+    assert response.is_no_modification
+    assert client.is_connected

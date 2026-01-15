@@ -131,4 +131,9 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
+    # Exclude docstrings (use literal strings for regex backslashes)
+    '^\\s*"""',
+    "^\\s*'''",
+    '^\\s*r"""',
+    "^\\s*r'''",
 ]

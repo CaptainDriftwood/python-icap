@@ -273,3 +273,65 @@ def test_protocol_encode_chunk_terminator():
 
     result = IcapProtocol._encode_chunk_terminator()
     assert result == b"0\r\n\r\n"
+
+
+# =============================================================================
+# IcapResponse tests
+# =============================================================================
+
+
+def test_response_repr():
+    """Test IcapResponse.__repr__ method."""
+    response = IcapResponse(200, "OK", {}, b"")
+    repr_str = repr(response)
+
+    assert "IcapResponse" in repr_str
+    assert "200" in repr_str
+    assert "OK" in repr_str
+
+
+def test_response_repr_with_special_message():
+    """Test IcapResponse.__repr__ with special characters."""
+    response = IcapResponse(204, "No Content", {}, b"")
+    repr_str = repr(response)
+
+    assert "204" in repr_str
+    assert "No Content" in repr_str
+
+
+def test_response_is_success_boundary_cases():
+    """Test is_success property at boundary values."""
+    # 199 is not success
+    response_199 = IcapResponse(199, "Info", {}, b"")
+    assert not response_199.is_success
+
+    # 200 is success
+    response_200 = IcapResponse(200, "OK", {}, b"")
+    assert response_200.is_success
+
+    # 299 is success
+    response_299 = IcapResponse(299, "Custom", {}, b"")
+    assert response_299.is_success
+
+    # 300 is not success
+    response_300 = IcapResponse(300, "Redirect", {}, b"")
+    assert not response_300.is_success
+
+
+def test_response_parse_with_no_body():
+    """Test parsing response with no body section."""
+    raw = b"ICAP/1.0 204 No Content\r\nServer: Test\r\n\r\n"
+    response = IcapResponse.parse(raw)
+
+    assert response.status_code == 204
+    assert response.body == b""
+
+
+def test_response_parse_with_empty_headers():
+    """Test parsing response with no headers."""
+    raw = b"ICAP/1.0 200 OK\r\n\r\nbody content"
+    response = IcapResponse.parse(raw)
+
+    assert response.status_code == 200
+    assert response.headers == {}
+    assert response.body == b"body content"

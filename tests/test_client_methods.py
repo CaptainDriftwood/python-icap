@@ -1094,3 +1094,144 @@ async def test_async_receive_response_body_in_multiple_reads():
     result = await client._send_and_receive(b"OPTIONS icap://test ICAP/1.0\r\n\r\n")
 
     assert result.status_code == 200
+
+
+# =============================================================================
+# Additional edge case tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_async_receive_response_empty_on_first_read():
+    """Test async response handling when first read returns empty (connection closed)."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    mock_reader.read.return_value = b""  # Connection closed immediately
+
+    client._reader = mock_reader
+
+    # This should not raise, just return empty response data
+    response_data = await client._receive_response()
+    assert response_data == b""
+
+
+@pytest.mark.asyncio
+async def test_async_read_chunked_body_with_extensions():
+    """Test async chunked body with chunk extensions (after semicolon)."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    mock_reader.read.return_value = b""
+
+    client._reader = mock_reader
+    client._connected = True
+
+    body = await client._read_chunked_body(b"5; ext=value\r\nHello\r\n0\r\n\r\n")
+    assert body == b"Hello"
+
+
+@pytest.mark.asyncio
+async def test_async_read_chunked_body_invalid_chunk_size():
+    """Test async chunked body with invalid chunk size raises IcapProtocolError."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    mock_reader.read.return_value = b""
+
+    client._reader = mock_reader
+    client._connected = True
+
+    with pytest.raises(IcapProtocolError) as exc_info:
+        await client._read_chunked_body(b"INVALID\r\ndata\r\n0\r\n\r\n")
+
+    assert "Invalid chunk size" in str(exc_info.value)
+
+
+def test_receive_response_chunked_with_extensions():
+    """Test sync chunked body with chunk extensions."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b""
+
+    client._socket = mock_socket
+    client._connected = True
+
+    body = client._read_chunked_body(b"5; name=value\r\nHello\r\n0\r\n\r\n")
+    assert body == b"Hello"
+
+
+def test_receive_response_no_content_length_no_chunked():
+    """Test response without Content-Length or chunked encoding (like 204)."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # 204 response with no body indicators
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\nServer: Test\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client._receive_response()
+    assert response.status_code == 204
+    assert response.body == b""
+
+
+def test_respmod_with_custom_headers():
+    """Test RESPMOD with custom ICAP headers."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client.respmod(
+        "avscan",
+        b"GET / HTTP/1.1\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\n\r\nbody",
+        headers={"X-Custom": "value"},
+    )
+
+    assert response.status_code == 204
+    sent_data = mock_socket.sendall.call_args[0][0]
+    assert b"X-Custom: value" in sent_data
+
+
+def test_scan_bytes_with_custom_service():
+    """Test scan_bytes with custom service name."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client.scan_bytes(b"test content", service="custom_scan")
+
+    assert response.status_code == 204
+    sent_data = mock_socket.sendall.call_args[0][0]
+    assert b"custom_scan" in sent_data
+
+
+def test_scan_file_uses_filename(tmp_path):
+    """Test scan_file includes filename in request."""
+    test_file = tmp_path / "report.pdf"
+    test_file.write_bytes(b"PDF content")
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client.scan_file(test_file)
+
+    assert response.status_code == 204
+    sent_data = mock_socket.sendall.call_args[0][0]
+    assert b"report.pdf" in sent_data
