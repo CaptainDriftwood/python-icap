@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import socket
 import ssl
 import subprocess
 import time
@@ -38,6 +39,18 @@ def is_docker_available() -> tuple[bool, str]:
         return False, f"Failed to check Docker status: {e}"
 
     return True, "Docker is available"
+
+
+def is_icap_service_running(host: str, port: int) -> bool:
+    """Check if ICAP service is already running by attempting a TCP connection."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -88,14 +101,26 @@ def wait_for_icap_service(
 
 @pytest.fixture(scope="session")
 def icap_service():
-    """Start ICAP service using docker-compose."""
+    """Start ICAP service using docker-compose.
+
+    If the service is already running (e.g., started by CI), uses the existing
+    containers. Otherwise, starts containers using testcontainers.
+    """
+    config = {"host": "localhost", "port": 1344, "service": "avscan"}
+
+    # Check if ICAP service is already running (e.g., started by CI)
+    if is_icap_service_running(config["host"], config["port"]):
+        # Service is already running, just wait for it to be fully ready
+        wait_for_icap_service(config["host"], config["port"], config["service"])
+        yield config
+        return
+
     # Check if Docker is available before attempting to start containers
     docker_available, message = is_docker_available()
     if not docker_available:
         pytest.skip(f"Skipping Docker-based tests: {message}")
 
     docker_path = Path(__file__).parent.parent / "docker"
-    config = {"host": "localhost", "port": 1344, "service": "avscan"}
 
     with DockerCompose(str(docker_path), compose_file_name="docker-compose.yml"):
         # Wait for ICAP service to be ready (polls until OPTIONS succeeds)
