@@ -1024,3 +1024,233 @@ async def test_async_scan_bytes_auto_connects(mocker):
     response = await client.scan_bytes(b"test content")
     assert response.is_no_modification
     assert client.is_connected
+
+
+# Additional error handling tests for coverage gaps
+
+
+def test_receive_response_body_in_multiple_reads():
+    """Test receiving response body that arrives in multiple recv() calls."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # Body content "Hello World!" (12 bytes) arrives in 3 chunks
+    mock_socket.recv.side_effect = [
+        b"ICAP/1.0 200 OK\r\nContent-Length: 12\r\n\r\nHell",  # Initial + partial body
+        b"o Wo",  # Middle chunk
+        b"rld!",  # Final chunk
+    ]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client._receive_response()
+
+    assert response.status_code == 200
+    assert response.body == b"Hello World!"
+    # Verify multiple recv calls were made
+    assert mock_socket.recv.call_count == 3
+
+
+def test_receive_response_timeout_during_recv():
+    """Test that socket.timeout during recv() raises IcapTimeoutError."""
+    import socket
+
+    from icap.exception import IcapTimeoutError
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # First recv returns headers with Content-Length, second times out
+    mock_socket.recv.side_effect = [
+        b"ICAP/1.0 200 OK\r\nContent-Length: 100\r\n\r\npartial",
+        socket.timeout("recv timed out"),
+    ]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    with pytest.raises(IcapTimeoutError) as exc_info:
+        client._receive_response()
+
+    assert "timed out" in str(exc_info.value)
+
+
+def test_receive_response_oserror_during_recv():
+    """Test that OSError during recv() raises IcapConnectionError and marks disconnected."""
+    from icap.exception import IcapConnectionError
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # First recv returns headers, second raises OSError
+    mock_socket.recv.side_effect = [
+        b"ICAP/1.0 200 OK\r\nContent-Length: 100\r\n\r\npartial",
+        OSError("Connection reset by peer"),
+    ]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    with pytest.raises(IcapConnectionError) as exc_info:
+        client._receive_response()
+
+    assert "Connection error" in str(exc_info.value)
+    assert not client.is_connected  # Should mark as disconnected
+
+
+def test_receive_response_body_exact_size():
+    """Test receiving body that exactly matches Content-Length in initial read."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # Entire response including full body in single read
+    mock_socket.recv.return_value = b"ICAP/1.0 200 OK\r\nContent-Length: 5\r\n\r\nHello"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    response = client._receive_response()
+
+    assert response.status_code == 200
+    assert response.body == b"Hello"
+
+
+def test_send_and_receive_timeout_during_send():
+    """Test that socket.timeout during sendall() raises IcapTimeoutError."""
+    import socket
+
+    from icap.exception import IcapTimeoutError
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.sendall.side_effect = socket.timeout("send timed out")
+
+    client._socket = mock_socket
+    client._connected = True
+
+    with pytest.raises(IcapTimeoutError) as exc_info:
+        client._send_and_receive(b"test request")
+
+    assert "timed out" in str(exc_info.value)
+
+
+def test_send_and_receive_oserror_during_send():
+    """Test that OSError during sendall() raises IcapConnectionError."""
+    from icap.exception import IcapConnectionError
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.sendall.side_effect = OSError("Broken pipe")
+
+    client._socket = mock_socket
+    client._connected = True
+
+    with pytest.raises(IcapConnectionError) as exc_info:
+        client._send_and_receive(b"test request")
+
+    assert "Connection error" in str(exc_info.value)
+    assert not client.is_connected
+
+
+async def test_async_receive_response_body_in_multiple_reads(mocker):
+    """Test async receiving response body that arrives in multiple read() calls."""
+    from icap import AsyncIcapClient
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.write = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+
+    # Track call count for the read mock
+    read_results = [
+        b"ICAP/1.0 200 OK\r\nContent-Length: 12\r\n\r\nHell",  # Initial + partial
+        b"o Wo",  # Middle
+        b"rld!",  # Final
+    ]
+    read_index = {"i": 0}
+
+    async def mock_read(*args):
+        idx = read_index["i"]
+        read_index["i"] += 1
+        if idx < len(read_results):
+            return read_results[idx]
+        return b""
+
+    mock_reader = mocker.MagicMock()
+    mock_reader.read = mock_read
+
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    # Bypass wait_for to avoid timeout complexity in tests
+    async def passthrough_wait_for(coro, timeout):
+        return await coro
+
+    mocker.patch("asyncio.wait_for", passthrough_wait_for)
+
+    await client.connect()
+    response_data = await client._receive_response()
+    response = IcapResponse.parse(response_data)
+
+    assert response.status_code == 200
+    assert response.body == b"Hello World!"
+    assert read_index["i"] == 3
+
+
+async def test_async_receive_response_oserror_during_read(mocker):
+    """Test that OSError during async read() raises IcapConnectionError via _send_and_receive."""
+    from icap import AsyncIcapClient
+    from icap.exception import IcapConnectionError
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.write = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+
+    # First read returns headers, second raises OSError
+    read_results = [
+        b"ICAP/1.0 200 OK\r\nContent-Length: 100\r\n\r\npartial",
+        OSError("Connection reset"),
+    ]
+    read_index = {"i": 0}
+
+    async def mock_read(*args):
+        idx = read_index["i"]
+        read_index["i"] += 1
+        if idx < len(read_results):
+            result = read_results[idx]
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return b""
+
+    mock_reader = mocker.MagicMock()
+    mock_reader.read = mock_read
+
+    mocker.patch(
+        "asyncio.open_connection",
+        return_value=(mock_reader, mock_writer),
+    )
+
+    # Bypass wait_for
+    async def passthrough_wait_for(coro, timeout):
+        return await coro
+
+    mocker.patch("asyncio.wait_for", passthrough_wait_for)
+
+    await client.connect()
+
+    # Call _send_and_receive which handles OSError from _receive_response
+    with pytest.raises(IcapConnectionError) as exc_info:
+        await client._send_and_receive(b"test request")
+
+    assert "Connection reset" in str(exc_info.value)
+    # Verify client is marked as disconnected
+    assert not client.is_connected
