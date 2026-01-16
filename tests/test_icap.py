@@ -325,3 +325,45 @@ def test_response_parse_with_empty_headers():
     assert response.status_code == 200
     assert response.headers == {}
     assert response.body == b"body content"
+
+
+def test_response_parse_header_without_colon():
+    """Test parsing response with a malformed header line (no colon)."""
+    # Header line without colon should be skipped
+    raw = b"ICAP/1.0 200 OK\r\nServer: Test\r\nMalformedLine\r\nAnother: Valid\r\n\r\n"
+    response = IcapResponse.parse(raw)
+
+    assert response.status_code == 200
+    assert response.headers["Server"] == "Test"
+    assert response.headers["Another"] == "Valid"
+    # Malformed line without colon should not be in headers
+    assert "MalformedLine" not in response.headers
+
+
+def test_response_parse_header_with_colon_in_value():
+    """Test parsing header where value contains colons."""
+    raw = b"ICAP/1.0 200 OK\r\nX-Info: value:with:colons\r\n\r\n"
+    response = IcapResponse.parse(raw)
+
+    assert response.headers["X-Info"] == "value:with:colons"
+
+
+# AsyncIcapClient property tests
+
+
+def test_async_client_properties():
+    """Test AsyncIcapClient property accessors."""
+    client = AsyncIcapClient("example.com", port=1345, timeout=30.0)
+
+    assert client.host == "example.com"
+    assert client.port == 1345
+    assert not client.is_connected
+
+
+def test_async_client_default_values():
+    """Test AsyncIcapClient default property values."""
+    client = AsyncIcapClient("localhost")
+
+    assert client.host == "localhost"
+    assert client.port == 1344  # Default ICAP port
+    assert client._ssl_context is None

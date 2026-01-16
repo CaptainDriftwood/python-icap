@@ -167,4 +167,18 @@ exclude_lines = [
     "^\\s*'''",
     '^\\s*r"""',
     "^\\s*r'''",
+
+    # Docstring section headers (Google/NumPy style)
+    "^\\s*Args:\\s*$",
+    "^\\s*Returns:\\s*$",
+    "^\\s*Raises:\\s*$",
+    "^\\s*Example:\\s*$",
+    "^\\s*Examples:\\s*$",
+    "^\\s*Attributes:\\s*$",
+    "^\\s*Note:\\s*$",
+    "^\\s*See Also:\\s*$",
+
+    # Doctest examples in docstrings
+    "^\\s*>>>",
+    "^\\s*\\.\\.\\.",
 ]
