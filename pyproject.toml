@@ -118,20 +118,51 @@ source = ["icap"]
 branch = true
 parallel = true
 omit = [
-    # Import-time only files - class/import definitions execute before coverage starts
-    # due to pytest plugin loading order
+    # Import-time only files - executed before coverage starts
     "*/icap/__init__.py",
     "*/icap/exception.py",
     "*/icap/pytest_plugin/plugin.py",
+    # Base protocol class - only tested via subclasses in integration tests
+    "*/icap/_protocol.py",
 ]
 
 [tool.coverage.report]
+# Show missing line numbers in terminal output
+show_missing = true
+
+# Don't clutter report with fully-covered files
+skip_covered = true
+
+# Don't show files with no executable statements
+skip_empty = true
+
 exclude_lines = [
+    # Standard pragmas
     "pragma: no cover",
+
+    # Type checking imports (never executed at runtime)
     "if TYPE_CHECKING:",
+
+    # Main script guard
     "if __name__ == .__main__.:",
+
+    # Abstract method markers
     "raise NotImplementedError",
-    # Exclude docstrings (use literal strings for regex backslashes)
+    "@abstractmethod",
+
+    # Ellipsis (used in stubs/protocols)
+    "^\\s*\\.\\.\\.$",
+
+    # Pass statements (empty implementations)
+    "^\\s*pass\\s*$",
+
+    # Simple property getters/setters returning private attributes
+    "^\\s*return self\\._\\w+\\s*$",
+
+    # Defensive assertions that shouldn't trigger
+    "raise AssertionError",
+
+    # Docstring delimiters
     '^\\s*"""',
     "^\\s*'''",
     '^\\s*r"""',
