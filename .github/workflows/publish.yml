@@ -45,7 +45,7 @@ jobs:
           path: dist/
 
       - name: Generate artifact attestations
-        uses: actions/attest-build-provenance@db473fddc028af60658334401dc6fa3ffd8669fd # v2
+        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v2
         with:
           subject-path: dist/*
 
