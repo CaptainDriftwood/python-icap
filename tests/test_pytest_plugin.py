@@ -1,6 +1,20 @@
 """Tests for the icap.pytest_plugin using pytester."""
 
+import pytest
+
 pytest_plugins = ["pytester"]
+
+
+@pytest.fixture(autouse=True)
+def setup_pytester_asyncio_config(pytester):
+    """Set asyncio config for all pytester subprocess tests to suppress warnings."""
+    pytester.makeini(
+        """
+        [pytest]
+        asyncio_mode = auto
+        asyncio_default_fixture_loop_scope = function
+        """
+    )
 
 
 def test_icap_marker_registered(pytester):

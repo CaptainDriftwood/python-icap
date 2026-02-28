@@ -644,7 +644,8 @@ async def test_async_options_basic():
     """Test basic async OPTIONS request."""
     client = AsyncIcapClient("localhost", 1344)
 
-    mock_writer = AsyncMock()
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
     mock_reader = AsyncMock()
     mock_reader.read.side_effect = [
         b"ICAP/1.0 200 OK\r\nMethods: RESPMOD, REQMOD\r\nAllow: 204\r\nPreview: 1024\r\n\r\n",
@@ -670,7 +671,8 @@ async def test_async_options_auto_connects(mocker):
     client = AsyncIcapClient("localhost", 1344)
     client._connected = False
 
-    mock_writer = AsyncMock()
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
     mock_reader = AsyncMock()
     mock_reader.read.side_effect = [b"ICAP/1.0 200 OK\r\n\r\n", b""]
 
@@ -692,7 +694,8 @@ async def test_async_respmod_basic():
     """Test basic async RESPMOD request."""
     client = AsyncIcapClient("localhost", 1344)
 
-    mock_writer = AsyncMock()
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
     mock_reader = AsyncMock()
     mock_reader.read.side_effect = [
         b"ICAP/1.0 200 OK\r\nEncapsulated: res-hdr=0\r\n\r\n",
@@ -718,7 +721,8 @@ async def test_async_reqmod_basic():
     """Test basic async REQMOD request."""
     client = AsyncIcapClient("localhost", 1344)
 
-    mock_writer = AsyncMock()
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
     mock_reader = AsyncMock()
     mock_reader.read.side_effect = [
         b"ICAP/1.0 200 OK\r\n\r\n",
@@ -743,7 +747,8 @@ async def test_async_scan_bytes_basic():
     """Test async scan_bytes method."""
     client = AsyncIcapClient("localhost", 1344)
 
-    mock_writer = AsyncMock()
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
     mock_reader = AsyncMock()
     mock_reader.read.side_effect = [
         b"ICAP/1.0 204 No Content\r\n\r\n",
@@ -765,7 +770,8 @@ async def test_async_scan_bytes_with_filename():
     """Test async scan_bytes with custom filename."""
     client = AsyncIcapClient("localhost", 1344)
 
-    mock_writer = AsyncMock()
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
     mock_reader = AsyncMock()
     mock_reader.read.side_effect = [
         b"ICAP/1.0 204 No Content\r\n\r\n",
@@ -792,7 +798,8 @@ async def test_async_scan_file_basic(mocker, tmp_path):
 
     client = AsyncIcapClient("localhost", 1344)
 
-    mock_writer = AsyncMock()
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
     mock_reader = AsyncMock()
     mock_reader.read.side_effect = [
         b"ICAP/1.0 204 No Content\r\n\r\n",
@@ -824,7 +831,8 @@ async def test_async_send_with_preview_complete_in_preview():
     """Test async preview mode when entire body fits in preview size."""
     client = AsyncIcapClient("localhost", 1344)
 
-    mock_writer = AsyncMock()
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
     mock_reader = AsyncMock()
     # Server responds with 204 (no modification needed)
     mock_reader.read.side_effect = [
@@ -854,7 +862,8 @@ async def test_async_send_with_preview_requires_continue():
     """Test async preview mode when server requests remaining body."""
     client = AsyncIcapClient("localhost", 1344)
 
-    mock_writer = AsyncMock()
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
     mock_reader = AsyncMock()
     # First response: 100 Continue, then 204 No Content
     mock_reader.read.side_effect = [
