@@ -9,9 +9,9 @@ install:
 # Run all checks (lint, typecheck, test)
 check: lint typecheck test
 
-# Run unit tests
+# Run unit tests (parallel by default)
 test *args:
-    uv run pytest -m "not integration" {{ args }}
+    uv run pytest -m "not integration" -n auto {{ args }}
 
 # Run integration tests (requires Docker)
 test-integration *args:
