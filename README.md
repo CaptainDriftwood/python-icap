@@ -12,6 +12,7 @@
 [![Python 3.8 | 3.9 | 3.10 | 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![No Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](pyproject.toml)
+[![LLMS.txt](https://img.shields.io/badge/LLMS-txt-blue)](https://github.com/CaptainDriftwood/python-icap/blob/master/LLMS.txt)
 
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
