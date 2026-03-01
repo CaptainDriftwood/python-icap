@@ -182,6 +182,10 @@ class IcapResponse:
             raise ValueError(f"Invalid ICAP status line: {status_line}")
 
         status_code = int(status_parts[1])
+
+        # Validate status code is in valid HTTP/ICAP range (100-599)
+        if not (100 <= status_code <= 599):
+            raise ValueError(f"Invalid ICAP status code: {status_code} (must be 100-599)")
         status_message = status_parts[2]
 
         headers: CaseInsensitiveDict = CaseInsensitiveDict()

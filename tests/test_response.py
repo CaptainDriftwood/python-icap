@@ -236,3 +236,27 @@ def test_parse_invalid_status_line():
 
     with pytest.raises(ValueError, match="Invalid ICAP status line"):
         IcapResponse.parse(data)
+
+
+def test_parse_status_code_too_low():
+    """Status code below 100 should raise ValueError."""
+    data = b"ICAP/1.0 99 Invalid\r\n\r\n"
+
+    with pytest.raises(ValueError, match="Invalid ICAP status code"):
+        IcapResponse.parse(data)
+
+
+def test_parse_status_code_too_high():
+    """Status code above 599 should raise ValueError."""
+    data = b"ICAP/1.0 600 Invalid\r\n\r\n"
+
+    with pytest.raises(ValueError, match="Invalid ICAP status code"):
+        IcapResponse.parse(data)
+
+
+def test_parse_status_code_negative():
+    """Negative status code should raise ValueError."""
+    data = b"ICAP/1.0 -1 Invalid\r\n\r\n"
+
+    with pytest.raises(ValueError, match="Invalid ICAP status code"):
+        IcapResponse.parse(data)
