@@ -96,7 +96,9 @@ class AsyncIcapClient(IcapProtocol):
         Args:
             address: ICAP server hostname or IP address
             port: ICAP server port (default: 1344)
-            timeout: Operation timeout in seconds (default: 10.0)
+            timeout: Operation timeout in seconds (default: 10.0). Accepts float
+                for sub-second precision (e.g., 0.5 for 500ms). Note: the sync
+                IcapClient uses int for timeout due to socket.settimeout() semantics.
             ssl_context: Optional SSL context for TLS connections. If provided,
                 the connection will be wrapped with SSL/TLS. You can create a
                 context using ssl.create_default_context() for standard TLS,
@@ -208,13 +210,29 @@ class AsyncIcapClient(IcapProtocol):
 
     async def options(self, service: str) -> IcapResponse:
         """
-        Send OPTIONS request to ICAP server.
+        Send OPTIONS request to query ICAP server capabilities.
+
+        The OPTIONS request retrieves information about the ICAP service,
+        including supported methods, preview size, and transfer encodings.
 
         Args:
             service: ICAP service name (e.g., "avscan")
 
         Returns:
-            IcapResponse object
+            IcapResponse with headers containing server capabilities:
+                - Methods: Supported ICAP methods (e.g., "RESPMOD, REQMOD")
+                - Preview: Suggested preview size in bytes for this service
+                - Transfer-Preview: File extensions that benefit from preview
+                - Max-Connections: Maximum concurrent connections allowed
+                - Options-TTL: How long (seconds) to cache this OPTIONS response
+                - Service-ID: Unique identifier for this service instance
+
+        Example:
+            >>> async with AsyncIcapClient('localhost') as client:
+            ...     response = await client.options("avscan")
+            ...     preview_size = int(response.headers.get("Preview", 0))
+            ...     methods = response.headers.get("Methods", "")
+            ...     print(f"Preview: {preview_size}, Methods: {methods}")
         """
         if self._writer is None:
             await self.connect()
@@ -427,9 +445,12 @@ class AsyncIcapClient(IcapProtocol):
             stream: File-like object (must support read())
             service: ICAP service name (default: "avscan")
             filename: Optional filename to use in HTTP headers
-            chunk_size: If > 0, stream data in chunks of this size (bytes).
-                       This uses chunked transfer encoding to avoid loading
-                       the entire file into memory.
+            chunk_size: Controls memory usage for large files.
+                - 0 (default): Reads entire stream into memory before sending.
+                  Simple but may exhaust memory for very large files.
+                - >0: Uses chunked streaming, reading and sending in chunks of
+                  this size (bytes). Set to 65536 for 64KB chunks, 1048576 for 1MB.
+                  Recommended for files larger than available memory.
 
         Returns:
             IcapResponse object

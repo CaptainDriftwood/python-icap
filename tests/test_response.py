@@ -159,7 +159,7 @@ def test_parse_header_leading_trailing_whitespace_stripped():
 
 def test_parse_header_with_utf8():
     """UTF-8 characters in header values should be handled."""
-    data = "ICAP/1.0 200 OK\r\nX-Info: café résumé\r\n\r\n".encode("utf-8")
+    data = "ICAP/1.0 200 OK\r\nX-Info: café résumé\r\n\r\n".encode()
     response = IcapResponse.parse(data)
 
     assert response.headers["X-Info"] == "café résumé"

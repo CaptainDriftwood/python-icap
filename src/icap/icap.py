@@ -217,13 +217,29 @@ class IcapClient(IcapProtocol):
 
     def options(self, service: str) -> IcapResponse:
         """
-        Send OPTIONS request to ICAP server.
+        Send OPTIONS request to query ICAP server capabilities.
+
+        The OPTIONS request retrieves information about the ICAP service,
+        including supported methods, preview size, and transfer encodings.
 
         Args:
             service: ICAP service name (e.g., "avscan")
 
         Returns:
-            IcapResponse object
+            IcapResponse with headers containing server capabilities:
+                - Methods: Supported ICAP methods (e.g., "RESPMOD, REQMOD")
+                - Preview: Suggested preview size in bytes for this service
+                - Transfer-Preview: File extensions that benefit from preview
+                - Max-Connections: Maximum concurrent connections allowed
+                - Options-TTL: How long (seconds) to cache this OPTIONS response
+                - Service-ID: Unique identifier for this service instance
+
+        Example:
+            >>> with IcapClient('localhost') as client:
+            ...     response = client.options("avscan")
+            ...     preview_size = int(response.headers.get("Preview", 0))
+            ...     methods = response.headers.get("Methods", "")
+            ...     print(f"Preview: {preview_size}, Methods: {methods}")
         """
         if not self._connected:
             self.connect()
@@ -431,9 +447,12 @@ class IcapClient(IcapProtocol):
             stream: File-like object (must support read())
             service: ICAP service name (default: "avscan")
             filename: Optional filename to use in HTTP headers
-            chunk_size: If > 0, use chunked streaming to avoid loading entire
-                       file into memory. Set to e.g. 65536 for 64KB chunks.
-                       If 0 (default), reads entire stream into memory.
+            chunk_size: Controls memory usage for large files.
+                - 0 (default): Reads entire stream into memory before sending.
+                  Simple but may exhaust memory for very large files.
+                - >0: Uses chunked streaming, reading and sending in chunks of
+                  this size (bytes). Set to 65536 for 64KB chunks, 1048576 for 1MB.
+                  Recommended for files larger than available memory.
 
         Returns:
             IcapResponse object
