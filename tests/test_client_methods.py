@@ -1420,3 +1420,39 @@ def test_header_value_with_tab_accepted():
         "OPTIONS icap://localhost/test ICAP/1.0\r\n", {"X-Header": "value\twith\ttabs"}
     )
     assert b"X-Header: value\twith\ttabs" in result
+
+
+# =============================================================================
+# Header section size limit tests
+# =============================================================================
+
+
+def test_header_section_size_limit_sync():
+    """Test that oversized header sections are rejected (sync client)."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # Return data that looks like headers but never ends (no \r\n\r\n)
+    # Each call returns 8KB of header-like data
+    mock_socket.recv.return_value = b"X-Header: " + b"A" * 8000 + b"\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    with pytest.raises(IcapProtocolError, match="header section exceeds maximum size"):
+        client._receive_response()
+
+
+async def test_header_section_size_limit_async():
+    """Test that oversized header sections are rejected (async client)."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    # Return data that looks like headers but never ends
+    mock_reader.read.return_value = b"X-Header: " + b"A" * 8000 + b"\r\n"
+
+    client._reader = mock_reader
+    client._writer = MagicMock()
+
+    with pytest.raises(IcapProtocolError, match="header section exceeds maximum size"):
+        await client._receive_response()

@@ -70,6 +70,9 @@ class IcapClient(IcapProtocol):
     # Default maximum response size (100MB)
     DEFAULT_MAX_RESPONSE_SIZE: int = 104_857_600
 
+    # Maximum header section size (64KB) - prevents DoS from endless headers
+    MAX_HEADER_SIZE: int = 65536
+
     def __init__(
         self,
         address: str,
@@ -584,6 +587,13 @@ class IcapClient(IcapProtocol):
                     break
                 response_data += chunk
 
+                # Prevent DoS from endless header data
+                if len(response_data) > self.MAX_HEADER_SIZE:
+                    raise IcapProtocolError(
+                        f"Response header section exceeds maximum size "
+                        f"({self.MAX_HEADER_SIZE:,} bytes)"
+                    )
+
             # Parse headers to determine if there's a body
             if header_end_marker in response_data:
                 header_section, body_start = response_data.split(header_end_marker, 1)
@@ -704,6 +714,13 @@ class IcapClient(IcapProtocol):
                 if not chunk:
                     break
                 response_data += chunk
+
+                # Prevent DoS from endless header data
+                if len(response_data) > self.MAX_HEADER_SIZE:
+                    raise IcapProtocolError(
+                        f"Response header section exceeds maximum size "
+                        f"({self.MAX_HEADER_SIZE:,} bytes)"
+                    )
 
             # Parse headers to determine if there's a body and how to read it
             if header_end_marker in response_data:

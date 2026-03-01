@@ -82,6 +82,9 @@ class AsyncIcapClient(IcapProtocol):
     # Default maximum response size (100MB)
     DEFAULT_MAX_RESPONSE_SIZE: int = 104_857_600
 
+    # Maximum header section size (64KB) - prevents DoS from endless headers
+    MAX_HEADER_SIZE: int = 65536
+
     def __init__(
         self,
         address: str,
@@ -685,6 +688,13 @@ class AsyncIcapClient(IcapProtocol):
                 if not chunk:
                     break
                 response_data += chunk
+
+                # Prevent DoS from endless header data
+                if len(response_data) > self.MAX_HEADER_SIZE:
+                    raise IcapProtocolError(
+                        f"Response header section exceeds maximum size "
+                        f"({self.MAX_HEADER_SIZE:,} bytes)"
+                    )
             except asyncio.TimeoutError:
                 raise IcapTimeoutError(
                     f"Timeout reading response from {self.host}:{self.port}"
