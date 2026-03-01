@@ -1,5 +1,7 @@
 from typing import Dict, Iterator, MutableMapping, Optional
 
+__all__ = ["CaseInsensitiveDict", "IcapResponse"]
+
 
 class CaseInsensitiveDict(MutableMapping[str, str]):
     """
