@@ -189,10 +189,11 @@ This allows the ICAP server to efficiently parse the message without scanning th
 
 ## Installation
 
-> **Note:** This package is not yet published to PyPI due to a name collision. Install directly from source.
-
 ```bash
-# Standard installation
+# Install from PyPI
+pip install python-icap
+
+# Or install from source
 pip install .
 
 # Development installation (editable)
