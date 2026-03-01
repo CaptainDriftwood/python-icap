@@ -10,7 +10,14 @@ import time
 from pathlib import Path
 
 import pytest
-from testcontainers.compose import DockerCompose
+
+try:
+    from testcontainers.compose import DockerCompose
+
+    HAS_TESTCONTAINERS = True
+except ImportError:
+    HAS_TESTCONTAINERS = False
+    DockerCompose = None  # type: ignore[misc, assignment]
 
 
 def is_docker_available() -> tuple[bool, str]:
@@ -119,6 +126,10 @@ def icap_service():
     docker_available, message = is_docker_available()
     if not docker_available:
         pytest.skip(f"Skipping Docker-based tests: {message}")
+
+    # Check if testcontainers is available (requires Python 3.9+)
+    if not HAS_TESTCONTAINERS:
+        pytest.skip("Skipping Docker-based tests: testcontainers requires Python 3.9+")
 
     docker_path = Path(__file__).parent.parent / "docker"
 

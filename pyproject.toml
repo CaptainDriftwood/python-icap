@@ -110,7 +110,7 @@ dev = [
     "pytest-xdist>=3.0.0",
     "ruff>=0.1.0",
     "setuptools>=75.3.2",  # Required for PyCharm's test runner
-    "testcontainers>=3.7.0",
+    "testcontainers>=4.0.0; python_version >= '3.9'",
     "ty>=0.0.8",
 ]
 
