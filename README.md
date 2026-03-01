@@ -598,8 +598,8 @@ python-icap/
 │   ├── async_icap.py     # Asynchronous ICAP client
 │   ├── _protocol.py      # Shared protocol constants
 │   ├── response.py       # Response handling
-│   └── exception.py      # Custom exceptions
-├── pytest_src/icap/        # Pytest plugin for ICAP testing
+│   ├── exception.py      # Custom exceptions
+│   └── pytest_plugin/    # Bundled pytest plugin for testing
 ├── tests/                # Unit tests
 ├── examples/             # Usage examples
 ├── docker/               # Docker setup for integration testing
