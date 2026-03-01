@@ -1456,3 +1456,211 @@ async def test_header_section_size_limit_async():
 
     with pytest.raises(IcapProtocolError, match="header section exceeds maximum size"):
         await client._receive_response()
+
+
+# =============================================================================
+# Preview mode edge case tests
+# =============================================================================
+
+
+def test_preview_body_equals_preview_size():
+    """Test preview mode when body size exactly equals preview size."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    request = b"RESPMOD icap://localhost:1344/avscan ICAP/1.0\r\n\r\n"
+    body = b"exactly10!"  # Exactly 10 bytes
+
+    response = client._send_with_preview(request, body, preview_size=10)
+
+    assert response.status_code == 204
+    # When body == preview size, should use ieof (complete in preview)
+    sent_data = mock_socket.sendall.call_args[0][0]
+    assert b"ieof" in sent_data
+
+
+def test_preview_body_smaller_than_preview_size():
+    """Test preview mode when body size is less than preview size."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    request = b"RESPMOD icap://localhost:1344/avscan ICAP/1.0\r\n\r\n"
+    body = b"tiny"  # 4 bytes, less than preview of 100
+
+    response = client._send_with_preview(request, body, preview_size=100)
+
+    assert response.status_code == 204
+    # Small body should use ieof
+    sent_data = mock_socket.sendall.call_args[0][0]
+    assert b"ieof" in sent_data
+
+
+def test_preview_server_rejects_early():
+    """Test preview mode when server rejects content early (200/403 response)."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # Server responds with 200 (threat detected) instead of 100 Continue
+    mock_socket.recv.return_value = (
+        b"ICAP/1.0 200 OK\r\nX-Virus-ID: EICAR\r\nEncapsulated: res-hdr=0, res-body=45\r\n\r\n"
+    )
+
+    client._socket = mock_socket
+    client._connected = True
+
+    request = b"RESPMOD icap://localhost:1344/avscan ICAP/1.0\r\n\r\n"
+    body = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+
+    response = client._send_with_preview(request, body, preview_size=20)
+
+    # Server should return 200 without needing the rest of the body
+    assert response.status_code == 200
+    assert response.headers.get("X-Virus-ID") == "EICAR"
+
+
+async def test_async_preview_complete_in_preview():
+    """Test async preview mode when entire body fits in preview size."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    mock_reader.read.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
+
+    client._reader = mock_reader
+    client._writer = mock_writer
+
+    request = b"RESPMOD icap://localhost:1344/avscan ICAP/1.0\r\n\r\n"
+    body = b"small"  # 5 bytes, fits in preview of 10
+
+    response = await client._send_with_preview(request, body, preview_size=10)
+
+    assert response.status_code == 204
+    # Verify ieof was sent
+    sent_data = mock_writer.write.call_args[0][0]
+    assert b"ieof" in sent_data
+
+
+async def test_async_preview_requires_continue():
+    """Test async preview mode when server requests remainder with 100 Continue."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [
+        b"ICAP/1.0 100 Continue\r\n\r\n",
+        b"ICAP/1.0 204 No Content\r\n\r\n",
+    ]
+
+    mock_writer = MagicMock()
+    mock_writer.drain = AsyncMock()
+
+    client._reader = mock_reader
+    client._writer = mock_writer
+
+    request = b"RESPMOD icap://localhost:1344/avscan ICAP/1.0\r\n\r\n"
+    body = b"a" * 100  # 100 bytes, more than preview of 10
+
+    response = await client._send_with_preview(request, body, preview_size=10)
+
+    assert response.status_code == 204
+    # Should have called write multiple times (preview, then remainder)
+    assert mock_writer.write.call_count >= 2
+
+
+# =============================================================================
+# HTTP encapsulation edge case tests
+# =============================================================================
+
+
+def test_http_response_without_body():
+    """Test RESPMOD with HTTP response that has no body."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    http_request = b"GET /empty HTTP/1.1\r\nHost: test\r\n\r\n"
+    # HTTP response with Content-Length: 0
+    http_response = b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n"
+
+    response = client.respmod("avscan", http_request, http_response)
+
+    assert response.status_code == 204
+
+
+def test_http_response_headers_only():
+    """Test RESPMOD with HTTP response that is headers only (no body separator)."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    http_request = b"GET /test HTTP/1.1\r\nHost: test\r\n\r\n"
+    # HTTP response without \r\n\r\n (no body separator)
+    http_response = b"HTTP/1.1 200 OK\r\nContent-Type: text/html"
+
+    response = client.respmod("avscan", http_request, http_response)
+
+    assert response.status_code == 204
+
+
+def test_http_body_with_embedded_crlf():
+    """Test RESPMOD with binary HTTP body containing CRLF sequences."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    http_request = b"GET /binary HTTP/1.1\r\nHost: test\r\n\r\n"
+    # Binary body with embedded CRLF - should not confuse the parser
+    binary_body = b"binary\r\n\r\ndata\r\nwith\r\n\r\nmany\r\ncrlf"
+    http_response = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Type: application/octet-stream\r\n"
+        b"Content-Length: " + str(len(binary_body)).encode() + b"\r\n"
+        b"\r\n" + binary_body
+    )
+
+    response = client.respmod("avscan", http_request, http_response)
+
+    assert response.status_code == 204
+
+
+def test_large_http_headers():
+    """Test RESPMOD with large HTTP headers (> 8KB)."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b"ICAP/1.0 204 No Content\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    http_request = b"GET /test HTTP/1.1\r\nHost: test\r\n\r\n"
+    # HTTP response with a very large header
+    large_header = b"X-Large-Header: " + b"A" * 10000 + b"\r\n"
+    http_response = b"HTTP/1.1 200 OK\r\n" + large_header + b"Content-Length: 5\r\n\r\nhello"
+
+    response = client.respmod("avscan", http_request, http_response)
+
+    assert response.status_code == 204
