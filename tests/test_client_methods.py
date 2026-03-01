@@ -1325,3 +1325,98 @@ async def test_async_max_response_size_must_be_positive():
 
     with pytest.raises(ValueError, match="must be a positive integer"):
         AsyncIcapClient("localhost", 1344, max_response_size=-1)
+
+
+# =============================================================================
+# Header validation tests (CRLF injection prevention)
+# =============================================================================
+
+
+def test_header_name_with_crlf_rejected():
+    """Header names with CRLF should be rejected."""
+    client = IcapClient("localhost", 1344)
+
+    with pytest.raises(ValueError, match="Invalid header name"):
+        client._build_request(
+            "OPTIONS icap://localhost/test ICAP/1.0\r\n", {"X-Bad\r\nHeader": "value"}
+        )
+
+
+def test_header_value_with_crlf_rejected():
+    """Header values with CRLF should be rejected."""
+    client = IcapClient("localhost", 1344)
+
+    with pytest.raises(ValueError, match="Invalid header value"):
+        client._build_request(
+            "OPTIONS icap://localhost/test ICAP/1.0\r\n", {"X-Header": "bad\r\nvalue"}
+        )
+
+
+def test_header_name_with_newline_rejected():
+    """Header names with newline should be rejected."""
+    client = IcapClient("localhost", 1344)
+
+    with pytest.raises(ValueError, match="Invalid header name"):
+        client._build_request(
+            "OPTIONS icap://localhost/test ICAP/1.0\r\n", {"X-Bad\nHeader": "value"}
+        )
+
+
+def test_header_value_with_newline_rejected():
+    """Header values with newline should be rejected."""
+    client = IcapClient("localhost", 1344)
+
+    with pytest.raises(ValueError, match="Invalid header value"):
+        client._build_request(
+            "OPTIONS icap://localhost/test ICAP/1.0\r\n", {"X-Header": "bad\nvalue"}
+        )
+
+
+def test_header_name_empty_rejected():
+    """Empty header names should be rejected."""
+    client = IcapClient("localhost", 1344)
+
+    with pytest.raises(ValueError, match="Header name cannot be empty"):
+        client._build_request("OPTIONS icap://localhost/test ICAP/1.0\r\n", {"": "value"})
+
+
+def test_header_name_with_space_rejected():
+    """Header names with spaces should be rejected."""
+    client = IcapClient("localhost", 1344)
+
+    with pytest.raises(ValueError, match="Invalid header name"):
+        client._build_request(
+            "OPTIONS icap://localhost/test ICAP/1.0\r\n", {"X Bad Header": "value"}
+        )
+
+
+def test_header_name_with_colon_rejected():
+    """Header names with colons should be rejected."""
+    client = IcapClient("localhost", 1344)
+
+    with pytest.raises(ValueError, match="Invalid header name"):
+        client._build_request("OPTIONS icap://localhost/test ICAP/1.0\r\n", {"X:Header": "value"})
+
+
+def test_valid_headers_accepted():
+    """Valid headers should be accepted."""
+    client = IcapClient("localhost", 1344)
+
+    # Should not raise
+    result = client._build_request(
+        "OPTIONS icap://localhost/test ICAP/1.0\r\n",
+        {"X-Custom-Header": "valid value with spaces", "Another-Header": "123"},
+    )
+    assert b"X-Custom-Header: valid value with spaces" in result
+    assert b"Another-Header: 123" in result
+
+
+def test_header_value_with_tab_accepted():
+    """Header values with horizontal tabs should be accepted."""
+    client = IcapClient("localhost", 1344)
+
+    # HTAB is allowed in header values
+    result = client._build_request(
+        "OPTIONS icap://localhost/test ICAP/1.0\r\n", {"X-Header": "value\twith\ttabs"}
+    )
+    assert b"X-Header: value\twith\ttabs" in result

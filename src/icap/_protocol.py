@@ -4,7 +4,16 @@ This module contains protocol-level constants and request building logic
 shared between the sync IcapClient and async AsyncIcapClient.
 """
 
+import re
 from typing import Dict, Optional
+
+# Characters that are invalid in header names (per RFC 7230)
+# Header names must be tokens: 1*tchar where tchar excludes CTLs, separators
+_INVALID_HEADER_NAME_CHARS = re.compile(r"[\x00-\x1f\x7f()<>@,;:\\\"/\[\]?={} \t]")
+
+# Characters that are invalid in header values (control chars except HTAB)
+# CRLF injection is the main concern - values must not contain CR or LF
+_INVALID_HEADER_VALUE_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 
 
 class IcapProtocol:
@@ -16,6 +25,32 @@ class IcapProtocol:
     BUFFER_SIZE: int = 8192
     USER_AGENT: str = "Python-ICAP-Client/1.0"
 
+    @staticmethod
+    def _validate_header(name: str, value: str) -> None:
+        """Validate header name and value to prevent injection attacks.
+
+        Args:
+            name: Header name
+            value: Header value
+
+        Raises:
+            ValueError: If header name or value contains invalid characters
+        """
+        if not name:
+            raise ValueError("Header name cannot be empty")
+
+        if _INVALID_HEADER_NAME_CHARS.search(name):
+            raise ValueError(
+                f"Invalid header name {name!r}: contains invalid characters "
+                "(control characters, spaces, or separators not allowed)"
+            )
+
+        if _INVALID_HEADER_VALUE_CHARS.search(value):
+            raise ValueError(
+                f"Invalid header value for {name!r}: contains control characters "
+                "(CR, LF, and other control characters not allowed)"
+            )
+
     def _build_request(self, request_line: str, headers: Dict[str, str]) -> bytes:
         """Build ICAP request from request line and headers.
 
@@ -25,9 +60,13 @@ class IcapProtocol:
 
         Returns:
             Encoded request bytes
+
+        Raises:
+            ValueError: If any header name or value contains invalid characters
         """
         request = request_line
         for key, value in headers.items():
+            self._validate_header(key, value)
             request += f"{key}: {value}{self.CRLF}"
         request += self.CRLF
         return request.encode("utf-8")
