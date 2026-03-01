@@ -1224,3 +1224,104 @@ def test_scan_file_uses_filename(tmp_path):
     assert response.status_code == 204
     sent_data = mock_socket.sendall.call_args[0][0]
     assert b"report.pdf" in sent_data
+
+
+# =============================================================================
+# Security: max_response_size tests
+# =============================================================================
+
+
+def test_max_response_size_default():
+    """Test that max_response_size has a sensible default (100MB)."""
+    client = IcapClient("localhost", 1344)
+    assert client._max_response_size == 104_857_600  # 100MB
+
+
+def test_max_response_size_custom():
+    """Test that max_response_size can be customized."""
+    client = IcapClient("localhost", 1344, max_response_size=500_000_000)
+    assert client._max_response_size == 500_000_000
+
+
+def test_max_response_size_must_be_positive():
+    """Test that max_response_size must be a positive integer."""
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        IcapClient("localhost", 1344, max_response_size=0)
+
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        IcapClient("localhost", 1344, max_response_size=-1)
+
+
+def test_content_length_exceeds_max_response_size():
+    """Test that Content-Length exceeding max_response_size raises error."""
+    client = IcapClient("localhost", 1344, max_response_size=1000)
+
+    mock_socket = MagicMock()
+    # Server claims response is 10000 bytes, exceeds our 1000 byte limit
+    mock_socket.recv.return_value = b"ICAP/1.0 200 OK\r\nContent-Length: 10000\r\n\r\n"
+
+    client._socket = mock_socket
+    client._connected = True
+
+    with pytest.raises(IcapProtocolError, match="exceeds maximum allowed size"):
+        client._receive_response()
+
+
+def test_chunk_size_exceeds_max_response_size():
+    """Test that a chunk size exceeding max_response_size raises error."""
+    client = IcapClient("localhost", 1344, max_response_size=1000)
+
+    mock_socket = MagicMock()
+    client._socket = mock_socket
+    client._connected = True
+
+    # Chunk claiming to be 0xFFFF (65535) bytes, exceeds our 1000 byte limit
+    initial_data = b"FFFF\r\n"
+
+    with pytest.raises(IcapProtocolError, match="Chunk size.*exceeds maximum allowed size"):
+        client._read_chunked_body(initial_data)
+
+
+def test_cumulative_chunked_body_exceeds_max_response_size():
+    """Test that cumulative chunked body exceeding max_response_size raises error."""
+    client = IcapClient("localhost", 1344, max_response_size=100)
+
+    mock_socket = MagicMock()
+    # Each chunk is small (50 bytes), but together they exceed 100 bytes
+    mock_socket.recv.side_effect = [
+        b"A" * 50 + b"\r\n",  # Complete first chunk data
+        b"32\r\n",  # Second chunk header (50 bytes in hex)
+        b"B" * 50 + b"\r\n",  # Second chunk data - total now 100 bytes
+        b"32\r\n",  # Third chunk header
+        b"C" * 50 + b"\r\n",  # Third chunk data - would exceed limit
+    ]
+
+    client._socket = mock_socket
+    client._connected = True
+
+    # First chunk is 50 bytes (0x32 in hex)
+    initial_data = b"32\r\n"
+
+    with pytest.raises(IcapProtocolError, match="Chunked response body.*exceeds maximum"):
+        client._read_chunked_body(initial_data)
+
+
+async def test_async_max_response_size_default():
+    """Test that async client max_response_size has a sensible default (100MB)."""
+    client = AsyncIcapClient("localhost", 1344)
+    assert client._max_response_size == 104_857_600  # 100MB
+
+
+async def test_async_max_response_size_custom():
+    """Test that async client max_response_size can be customized."""
+    client = AsyncIcapClient("localhost", 1344, max_response_size=500_000_000)
+    assert client._max_response_size == 500_000_000
+
+
+async def test_async_max_response_size_must_be_positive():
+    """Test that async client max_response_size must be a positive integer."""
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        AsyncIcapClient("localhost", 1344, max_response_size=0)
+
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        AsyncIcapClient("localhost", 1344, max_response_size=-1)

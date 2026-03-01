@@ -67,12 +67,16 @@ class IcapClient(IcapProtocol):
         - IcapResponse: Response object returned by all methods
     """
 
+    # Default maximum response size (100MB)
+    DEFAULT_MAX_RESPONSE_SIZE: int = 104_857_600
+
     def __init__(
         self,
         address: str,
         port: int = IcapProtocol.DEFAULT_PORT,
         timeout: int = 10,
         ssl_context: Optional[ssl.SSLContext] = None,
+        max_response_size: int = DEFAULT_MAX_RESPONSE_SIZE,
     ) -> None:
         """
         Initialize ICAP client.
@@ -85,6 +89,10 @@ class IcapClient(IcapProtocol):
                 the connection will be wrapped with SSL/TLS. You can create a
                 context using ssl.create_default_context() for standard TLS,
                 or customize it for specific certificate requirements.
+            max_response_size: Maximum allowed response size in bytes (default: 100MB).
+                This limits both Content-Length values and individual chunk sizes
+                in chunked transfer encoding. Increase this if you need to scan
+                files larger than 100MB. Must be a positive integer.
 
         Example:
             >>> # Standard TLS with system CA certificates
@@ -99,11 +107,17 @@ class IcapClient(IcapProtocol):
             >>> ssl_ctx = ssl.create_default_context()
             >>> ssl_ctx.load_cert_chain('/path/to/client.pem', '/path/to/key.pem')
             >>> client = IcapClient('icap.example.com', ssl_context=ssl_ctx)
+
+            >>> # Scanning large files (up to 500MB)
+            >>> client = IcapClient('localhost', max_response_size=500_000_000)
         """
+        if max_response_size <= 0:
+            raise ValueError("max_response_size must be a positive integer")
         self._address: str = address
         self._port: int = port
         self._timeout: int = timeout
         self._ssl_context: Optional[ssl.SSLContext] = ssl_context
+        self._max_response_size: int = max_response_size
         self._socket: Optional[Union[socket.socket, ssl.SSLSocket]] = None
         self._connected: bool = False
         logger.debug(
@@ -570,6 +584,13 @@ class IcapClient(IcapProtocol):
                             break
 
                 if content_length is not None:
+                    # Validate content length against maximum allowed size
+                    if content_length > self._max_response_size:
+                        raise IcapProtocolError(
+                            f"Response Content-Length ({content_length:,} bytes) exceeds "
+                            f"maximum allowed size ({self._max_response_size:,} bytes)"
+                        )
+
                     response_data = header_section + header_end_marker
                     bytes_read = len(body_start)
                     response_data += body_start
@@ -773,6 +794,13 @@ class IcapClient(IcapProtocol):
             except ValueError:
                 raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}") from None
 
+            # Validate chunk size against maximum allowed
+            if chunk_size > self._max_response_size:
+                raise IcapProtocolError(
+                    f"Chunk size ({chunk_size:,} bytes) exceeds "
+                    f"maximum allowed size ({self._max_response_size:,} bytes)"
+                )
+
             if chunk_size == 0:
                 # Final chunk - read trailing CRLF
                 break
@@ -786,6 +814,14 @@ class IcapClient(IcapProtocol):
 
             # Extract chunk data (excluding trailing CRLF)
             body += buffer[:chunk_size]
+
+            # Validate total body size against maximum allowed
+            if len(body) > self._max_response_size:
+                raise IcapProtocolError(
+                    f"Chunked response body ({len(body):,} bytes) exceeds "
+                    f"maximum allowed size ({self._max_response_size:,} bytes)"
+                )
+
             buffer = buffer[chunk_size + 2 :]  # Skip chunk data and CRLF
 
         return body
