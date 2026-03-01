@@ -4,7 +4,7 @@ import asyncio
 import logging
 import ssl
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, Optional, Union
+from typing import Any, AsyncIterator, BinaryIO, Dict, Optional, Union
 
 from ._protocol import IcapProtocol
 from .exception import IcapConnectionError, IcapProtocolError, IcapServerError, IcapTimeoutError
@@ -571,7 +571,7 @@ class AsyncIcapClient(IcapProtocol):
 
         return response
 
-    async def _iter_chunks(self, stream: BinaryIO, chunk_size: int):
+    async def _iter_chunks(self, stream: BinaryIO, chunk_size: int) -> AsyncIterator[bytes]:
         """Iterate over a stream in chunks, yielding each chunk asynchronously."""
         loop = asyncio.get_running_loop()
         while True:
