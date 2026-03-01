@@ -1,4 +1,55 @@
-from typing import Dict
+from typing import Dict, Iterator, MutableMapping, Optional
+
+
+class CaseInsensitiveDict(MutableMapping[str, str]):
+    """
+    A dictionary with case-insensitive string keys.
+
+    Per RFC 3507, ICAP header field names are case-insensitive, following HTTP/1.1
+    conventions (RFC 7230 Section 3.2). This dictionary allows header lookups
+    regardless of case while preserving the original case for display.
+
+    Example:
+        >>> headers = CaseInsensitiveDict()
+        >>> headers["X-Virus-ID"] = "EICAR"
+        >>> headers["x-virus-id"]
+        'EICAR'
+        >>> headers["X-VIRUS-ID"]
+        'EICAR'
+    """
+
+    def __init__(self, data: Optional[Dict[str, str]] = None) -> None:
+        # Store as {lowercase_key: (original_key, value)}
+        self._store: Dict[str, tuple[str, str]] = {}
+        if data:
+            for key, value in data.items():
+                self[key] = value
+
+    def __setitem__(self, key: str, value: str) -> None:
+        # Store with lowercase key, but preserve original case
+        self._store[key.lower()] = (key, value)
+
+    def __getitem__(self, key: str) -> str:
+        return self._store[key.lower()][1]
+
+    def __delitem__(self, key: str) -> None:
+        del self._store[key.lower()]
+
+    def __iter__(self) -> Iterator[str]:
+        # Iterate over original-case keys
+        return (original_key for original_key, _ in self._store.values())
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+    def __contains__(self, key: object) -> bool:
+        if not isinstance(key, str):
+            return False
+        return key.lower() in self._store
+
+    def __repr__(self) -> str:
+        items = ", ".join(f"{k!r}: {v!r}" for k, v in self.items())
+        return f"CaseInsensitiveDict({{{items}}})"
 
 
 class IcapResponse:
@@ -18,7 +69,9 @@ class IcapResponse:
             - 404: Service Not Found
             - 500+: Server Error
         status_message: Human-readable status message (e.g., "OK", "No Content").
-        headers: Dictionary of ICAP response headers. May include:
+        headers: Case-insensitive dictionary of ICAP response headers (per RFC 3507).
+            Lookups work regardless of case: headers["X-Virus-ID"] == headers["x-virus-id"].
+            May include:
             - "X-Virus-ID": Name of detected virus (when virus found)
             - "X-Infection-Found": Details about the infection
             - "ISTag": Server state tag for caching
@@ -35,19 +88,30 @@ class IcapResponse:
         ...     print(f"Threat detected: {virus}")
     """
 
-    def __init__(self, status_code: int, status_message: str, headers: Dict[str, str], body: bytes):
+    def __init__(
+        self,
+        status_code: int,
+        status_message: str,
+        headers: MutableMapping[str, str],
+        body: bytes,
+    ):
         """
         Initialize ICAP response.
 
         Args:
             status_code: ICAP status code (e.g., 200, 204).
             status_message: Status message (e.g., "OK", "No Content").
-            headers: ICAP response headers as a dictionary.
+            headers: ICAP response headers. Will be converted to case-insensitive
+                dictionary if not already (per RFC 3507, header names are case-insensitive).
             body: Response body bytes (may contain modified HTTP response).
         """
         self.status_code = status_code
         self.status_message = status_message
-        self.headers = headers
+        # Ensure headers are case-insensitive per RFC 3507
+        if isinstance(headers, CaseInsensitiveDict):
+            self.headers = headers
+        else:
+            self.headers = CaseInsensitiveDict(dict(headers))
         self.body = body
 
     @property
@@ -118,11 +182,17 @@ class IcapResponse:
         status_code = int(status_parts[1])
         status_message = status_parts[2]
 
-        headers = {}
+        headers: CaseInsensitiveDict = CaseInsensitiveDict()
         for line in lines[1:]:
             if ":" in line:
                 key, value = line.split(":", 1)
-                headers[key.strip()] = value.strip()
+                key = key.strip()
+                value = value.strip()
+                # Handle duplicate headers by combining with comma (RFC 7230 Section 3.2.2)
+                if key in headers:
+                    headers[key] = headers[key] + ", " + value
+                else:
+                    headers[key] = value
 
         return cls(status_code, status_message, headers, body)
 

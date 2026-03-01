@@ -10,7 +10,7 @@ from .exception import (
     IcapTimeoutError,
 )
 from .icap import IcapClient
-from .response import IcapResponse
+from .response import CaseInsensitiveDict, IcapResponse
 
 # Set up logging with NullHandler to avoid "No handler found" warnings
 logging.getLogger(__name__).addHandler(logging.NullHandler())
@@ -19,6 +19,7 @@ __version__ = version("python-icap")
 
 __all__ = [
     "AsyncIcapClient",
+    "CaseInsensitiveDict",
     "IcapClient",
     "IcapResponse",
     "IcapException",
