@@ -553,7 +553,8 @@ class AsyncIcapClient(IcapProtocol):
         except asyncio.TimeoutError:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from None
         except OSError as e:
-            self._connected = False
+            self._writer = None
+            self._reader = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
         # Parse response
