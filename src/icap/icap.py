@@ -10,7 +10,6 @@ from ._protocol import (
     parse_response_headers,
     prepare_preview_data,
     validate_body_size,
-    validate_content_length,
 )
 from .exception import IcapConnectionError, IcapProtocolError, IcapServerError, IcapTimeoutError
 from .response import IcapResponse

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Callable
 
 from .exception import IcapProtocolError
 
@@ -56,7 +56,7 @@ class IcapProtocol:
                 "(CR, LF, and other control characters not allowed)"
             )
 
-    def _build_request(self, request_line: str, headers: Dict[str, str]) -> bytes:
+    def _build_request(self, request_line: str, headers: dict[str, str]) -> bytes:
         """Build ICAP request from request line and headers.
 
         Args:
@@ -76,7 +76,7 @@ class IcapProtocol:
         request += self.CRLF
         return request.encode("utf-8")
 
-    def _build_http_request_header(self, filename: Optional[str]) -> bytes:
+    def _build_http_request_header(self, filename: str | None) -> bytes:
         """Build encapsulated HTTP request header for file scanning.
 
         Args:
@@ -284,8 +284,8 @@ def validate_content_length(content_length: int, max_size: int) -> None:
 def prepare_preview_data(
     body: bytes,
     preview_size: int,
-    encode_chunked: callable,
-    encode_terminator: callable,
+    encode_chunked: Callable[[bytes], bytes],
+    encode_terminator: Callable[[], bytes],
 ) -> PreviewData:
     """Prepare body data for preview mode transmission.
 
