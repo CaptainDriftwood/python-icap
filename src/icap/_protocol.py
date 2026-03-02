@@ -206,6 +206,10 @@ def parse_response_headers(headers_str: str) -> ResponseHeaders:
                     raise IcapProtocolError(
                         f"Invalid Content-Length header: {value.strip()!r}"
                     ) from None
+                if content_length < 0:
+                    raise IcapProtocolError(
+                        f"Invalid Content-Length header: {content_length} (must be non-negative)"
+                    )
             elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
                 is_chunked = True
 

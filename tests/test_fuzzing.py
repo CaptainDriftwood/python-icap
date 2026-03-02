@@ -170,18 +170,11 @@ def test_fuzz_response_headers_valid_content_length(content_length: int):
 @given(content_length=st.integers(max_value=-1))
 @settings(max_examples=100)
 def test_fuzz_response_headers_negative_content_length(content_length: int):
-    """Negative Content-Length should be handled.
-
-    Note: Currently parses as negative int. This test documents behavior.
-    Ideally should raise IcapProtocolError.
-    """
+    """Negative Content-Length should raise IcapProtocolError."""
     headers_str = f"ICAP/1.0 200 OK\r\nContent-Length: {content_length}"
 
-    # Document current behavior - parses negative values
-    result = parse_response_headers(headers_str)
-    # This is a bug - negative Content-Length should not be allowed
-    # For now, just verify it doesn't crash
-    assert result.content_length == content_length
+    with pytest.raises(IcapProtocolError, match="must be non-negative"):
+        parse_response_headers(headers_str)
 
 
 def test_fuzz_response_headers_chunked():
@@ -242,18 +235,12 @@ def test_fuzz_encapsulated_multiple_fields(req_hdr: int, res_hdr: int, res_body:
 @given(offset=st.integers(max_value=-1))
 @settings(max_examples=100)
 def test_fuzz_encapsulated_negative_offset(offset: int):
-    """Negative offsets should be handled.
-
-    Note: Currently parses as negative int. This test documents behavior.
-    Ideally should be rejected or treated as invalid.
-    """
+    """Negative offsets should be silently ignored (treated as invalid)."""
     header_value = f"res-body={offset}"
 
-    # Document current behavior - parses negative values
     result = EncapsulatedParts.parse(header_value)
-    # This is a bug - negative offsets don't make sense
-    # For now, just verify it doesn't crash
-    assert result.res_body == offset
+    # Negative offsets are ignored, field remains None
+    assert result.res_body is None
 
 
 @given(header_value=st.text(max_size=200))

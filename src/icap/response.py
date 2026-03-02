@@ -58,7 +58,8 @@ class EncapsulatedParts:
                 name = name.strip().replace("-", "_")
                 try:
                     offset = int(value.strip())
-                    if hasattr(parts, name):
+                    # Only set valid non-negative offsets on known fields
+                    if offset >= 0 and hasattr(parts, name):
                         setattr(parts, name, offset)
                 except ValueError:
                     pass  # Skip invalid offset values
