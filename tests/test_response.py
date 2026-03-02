@@ -260,3 +260,33 @@ def test_parse_status_code_negative():
 
     with pytest.raises(ValueError, match="Invalid ICAP status code"):
         IcapResponse.parse(data)
+
+
+# =============================================================================
+# ISTag property tests
+# =============================================================================
+
+
+def test_istag_property_returns_value():
+    """ISTag property returns header value when present."""
+    data = b'ICAP/1.0 200 OK\r\nISTag: "AV-2026030101"\r\nMethods: RESPMOD\r\n\r\n'
+    response = IcapResponse.parse(data)
+
+    assert response.istag == '"AV-2026030101"'
+
+
+def test_istag_property_returns_none_when_missing():
+    """ISTag property returns None when header not present."""
+    data = b"ICAP/1.0 200 OK\r\nMethods: RESPMOD\r\n\r\n"
+    response = IcapResponse.parse(data)
+
+    assert response.istag is None
+
+
+def test_istag_property_case_insensitive():
+    """ISTag header lookup is case-insensitive."""
+    # Lowercase header name
+    data = b'ICAP/1.0 200 OK\r\nistag: "v1.0"\r\n\r\n'
+    response = IcapResponse.parse(data)
+
+    assert response.istag == '"v1.0"'

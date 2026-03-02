@@ -243,6 +243,39 @@ class IcapResponse:
             return None
         return EncapsulatedParts.parse(enc_header)
 
+    @property
+    def istag(self) -> Optional[str]:
+        """
+        Get the ISTag (ICAP Service Tag) header value.
+
+        The ISTag is defined in RFC 3507 Section 4.7 and represents the current
+        state/version of the ICAP service. It typically changes when:
+
+        - Virus definitions are updated (for AV scanners)
+        - Scanning engine configuration changes
+        - Service policies are modified
+
+        This is useful for cache validation: if the ISTag hasn't changed since
+        a previous scan, cached results for unchanged files remain valid.
+
+        Returns:
+            The ISTag string (including quotes if present), or None if not provided.
+
+        Example:
+            >>> # Get ISTag from OPTIONS response
+            >>> response = client.options("avscan")
+            >>> current_istag = response.istag
+            >>> print(f"Service version: {current_istag}")
+            Service version: "AV-2026030101-signatures"
+
+            >>> # Use for cache validation (application-level logic)
+            >>> if current_istag == cached_istag:
+            ...     print("Cached scan results still valid")
+            ... else:
+            ...     print("Service updated, rescan needed")
+        """
+        return self.headers.get("ISTag")
+
     @classmethod
     def parse(cls, data: bytes) -> "IcapResponse":
         """
