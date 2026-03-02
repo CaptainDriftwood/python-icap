@@ -1,6 +1,68 @@
+from dataclasses import dataclass
 from typing import Dict, Iterator, MutableMapping, Optional
 
-__all__ = ["CaseInsensitiveDict", "IcapResponse"]
+__all__ = ["CaseInsensitiveDict", "EncapsulatedParts", "IcapResponse"]
+
+
+@dataclass
+class EncapsulatedParts:
+    """
+    Parsed representation of the ICAP Encapsulated header.
+
+    The Encapsulated header indicates byte offsets of different parts of the
+    encapsulated HTTP message within the ICAP response body. This is useful
+    for understanding which parts of the HTTP message were modified.
+
+    Attributes:
+        req_hdr: Offset of the encapsulated HTTP request headers, or None if not present.
+        req_body: Offset of the encapsulated HTTP request body, or None if not present.
+        res_hdr: Offset of the encapsulated HTTP response headers, or None if not present.
+        res_body: Offset of the encapsulated HTTP response body, or None if not present.
+        null_body: Offset indicating no body follows, or None if not present.
+        opt_body: Offset of OPTIONS response body, or None if not present.
+
+    Example:
+        >>> response.encapsulated.res_hdr
+        0
+        >>> response.encapsulated.res_body
+        128
+    """
+
+    req_hdr: Optional[int] = None
+    req_body: Optional[int] = None
+    res_hdr: Optional[int] = None
+    res_body: Optional[int] = None
+    null_body: Optional[int] = None
+    opt_body: Optional[int] = None
+
+    @classmethod
+    def parse(cls, header_value: str) -> "EncapsulatedParts":
+        """
+        Parse an Encapsulated header value.
+
+        Args:
+            header_value: The Encapsulated header value (e.g., "res-hdr=0, res-body=128")
+
+        Returns:
+            EncapsulatedParts with parsed offsets.
+
+        Example:
+            >>> EncapsulatedParts.parse("req-hdr=0, res-hdr=45, res-body=128")
+            EncapsulatedParts(req_hdr=0, req_body=None, res_hdr=45, res_body=128, ...)
+        """
+        parts = cls()
+        for segment in header_value.split(","):
+            segment = segment.strip()
+            if "=" in segment:
+                name, value = segment.split("=", 1)
+                name = name.strip().replace("-", "_")
+                try:
+                    offset = int(value.strip())
+                    if hasattr(parts, name):
+                        setattr(parts, name, offset)
+                except ValueError:
+                    pass  # Skip invalid offset values
+        return parts
 
 
 class CaseInsensitiveDict(MutableMapping[str, str]):
@@ -157,6 +219,29 @@ class IcapResponse:
             ...     print(f"Status: {response.status_code}")
         """
         return self.status_code == 204
+
+    @property
+    def encapsulated(self) -> Optional[EncapsulatedParts]:
+        """
+        Parse and return the Encapsulated header parts.
+
+        The Encapsulated header indicates byte offsets of HTTP message parts
+        within the ICAP response body. This helps identify which parts were
+        modified by the ICAP server.
+
+        Returns:
+            EncapsulatedParts with parsed offsets, or None if no Encapsulated header.
+
+        Example:
+            >>> response = client.respmod("avscan", http_request, http_response)
+            >>> if response.encapsulated and response.encapsulated.res_body is not None:
+            ...     body_offset = response.encapsulated.res_body
+            ...     modified_body = response.body[body_offset:]
+        """
+        enc_header = self.headers.get("Encapsulated")
+        if enc_header is None:
+            return None
+        return EncapsulatedParts.parse(enc_header)
 
     @classmethod
     def parse(cls, data: bytes) -> "IcapResponse":

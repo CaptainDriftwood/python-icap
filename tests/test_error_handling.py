@@ -1195,8 +1195,7 @@ async def test_async_receive_response_body_in_multiple_reads(mocker):
     mocker.patch("asyncio.wait_for", passthrough_wait_for)
 
     await client.connect()
-    response_data = await client._receive_response()
-    response = IcapResponse.parse(response_data)
+    response = await client._receive_response()
 
     assert response.status_code == 200
     assert response.body == b"Hello World!"

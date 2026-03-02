@@ -94,12 +94,11 @@ def test_send_with_preview_connection_error():
     mock_socket.sendall.side_effect = OSError("Connection reset")
 
     client._socket = mock_socket
-    client._connected = True
 
     with pytest.raises(IcapConnectionError):
         client._send_with_preview(b"request", b"body", preview_size=10)
 
-    assert not client._connected
+    assert not client.is_connected
 
 
 def test_receive_response_simple():
@@ -432,10 +431,10 @@ async def test_async_receive_response_simple():
     ]
 
     client._reader = mock_reader
-    client._connected = True
 
-    response_data = await client._receive_response()
-    assert b"200 OK" in response_data
+    response = await client._receive_response()
+    assert response.status_code == 200
+    assert response.status_message == "OK"
 
 
 @pytest.mark.asyncio
@@ -1100,9 +1099,9 @@ async def test_async_receive_response_empty_on_first_read():
 
     client._reader = mock_reader
 
-    # This should not raise, just return empty response data
-    response_data = await client._receive_response()
-    assert response_data == b""
+    # Empty response data fails to parse as valid ICAP response
+    with pytest.raises(ValueError, match="Invalid ICAP status line"):
+        await client._receive_response()
 
 
 @pytest.mark.asyncio

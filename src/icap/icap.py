@@ -122,7 +122,6 @@ class IcapClient(IcapProtocol):
         self._ssl_context: Optional[ssl.SSLContext] = ssl_context
         self._max_response_size: int = max_response_size
         self._socket: Optional[Union[socket.socket, ssl.SSLSocket]] = None
-        self._connected: bool = False
         logger.debug(
             f"Initialized IcapClient for {address}:{port} (SSL: {ssl_context is not None})"
         )
@@ -144,7 +143,7 @@ class IcapClient(IcapProtocol):
     @property
     def is_connected(self) -> bool:
         """Return True if the client is currently connected to the server."""
-        return self._connected
+        return self._socket is not None
 
     def connect(self) -> None:
         """Connect to the ICAP server.
@@ -157,7 +156,7 @@ class IcapClient(IcapProtocol):
                 SSL/TLS handshake errors.
             IcapTimeoutError: If connection times out.
         """
-        if self._connected:
+        if self._socket is not None:
             logger.debug("Already connected")
             return
 
@@ -175,7 +174,6 @@ class IcapClient(IcapProtocol):
             else:
                 self._socket = sock
 
-            self._connected = True
             logger.info(
                 f"Connected to {self.host}:{self.port} (SSL: {self._ssl_context is not None})"
             )
@@ -206,7 +204,6 @@ class IcapClient(IcapProtocol):
             except OSError as e:
                 logger.warning(f"Error while disconnecting: {e}")
             self._socket = None
-        self._connected = False
 
     def __enter__(self) -> "IcapClient":
         """Context manager entry."""
@@ -244,7 +241,7 @@ class IcapClient(IcapProtocol):
             ...     methods = response.headers.get("Methods", "")
             ...     print(f"Preview: {preview_size}, Methods: {methods}")
         """
-        if not self._connected:
+        if self._socket is None:
             self.connect()
 
         logger.debug(f"Sending OPTIONS request for service: {service}")
@@ -287,7 +284,7 @@ class IcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
-        if not self._connected:
+        if self._socket is None:
             self.connect()
 
         logger.debug(f"Sending RESPMOD request for service: {service}")
@@ -371,7 +368,7 @@ class IcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
-        if not self._connected:
+        if self._socket is None:
             self.connect()
 
         logger.debug(f"Sending REQMOD request for service: {service}")
@@ -502,7 +499,7 @@ class IcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
-        if not self._connected:
+        if self._socket is None:
             self.connect()
 
         if self._socket is None:
@@ -557,7 +554,7 @@ class IcapClient(IcapProtocol):
         except socket.timeout as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except OSError as e:
-            self._connected = False
+            self._socket = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
     def _iter_chunks(self, stream: BinaryIO, chunk_size: int) -> Iterator[bytes]:
@@ -644,7 +641,7 @@ class IcapClient(IcapProtocol):
         except socket.timeout as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except OSError as e:
-            self._connected = False
+            self._socket = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
         try:
@@ -783,7 +780,7 @@ class IcapClient(IcapProtocol):
         except socket.timeout as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except OSError as e:
-            self._connected = False
+            self._socket = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
         try:
@@ -929,5 +926,5 @@ class IcapClient(IcapProtocol):
         except socket.timeout as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except OSError as e:
-            self._connected = False
+            self._socket = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e

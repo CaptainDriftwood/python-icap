@@ -586,7 +586,7 @@ class AsyncIcapClient(IcapProtocol):
             logger.debug(f"Sent {total_bytes} bytes in chunked encoding")
 
             # Receive response
-            response_data = await self._receive_response()
+            response = await self._receive_response()
 
         except asyncio.TimeoutError:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from None
@@ -594,12 +594,6 @@ class AsyncIcapClient(IcapProtocol):
             self._writer = None
             self._reader = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
-
-        # Parse response
-        try:
-            response = IcapResponse.parse(response_data)
-        except ValueError as e:
-            raise IcapProtocolError(f"Failed to parse ICAP response: {e}") from e
 
         # Check for server errors
         if 500 <= response.status_code < 600:
@@ -641,9 +635,9 @@ class AsyncIcapClient(IcapProtocol):
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
             # Receive response
-            response_data = await self._receive_response()
+            response = await self._receive_response()
 
-            logger.debug(f"Received {len(response_data)} bytes from ICAP server")
+            logger.debug(f"Received response: {response.status_code} {response.status_message}")
 
         except asyncio.TimeoutError as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
@@ -657,11 +651,6 @@ class AsyncIcapClient(IcapProtocol):
             self._reader = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
-        try:
-            response = IcapResponse.parse(response_data)
-        except ValueError as e:
-            raise IcapProtocolError(f"Failed to parse ICAP response: {e}") from e
-
         # Check for server errors
         if 500 <= response.status_code < 600:
             raise IcapServerError(
@@ -670,8 +659,8 @@ class AsyncIcapClient(IcapProtocol):
 
         return response
 
-    async def _receive_response(self) -> bytes:
-        """Receive and return raw ICAP response data."""
+    async def _receive_response(self) -> IcapResponse:
+        """Receive and parse ICAP response from the server."""
         if self._reader is None:
             raise IcapConnectionError("Not connected to ICAP server")
 
@@ -764,7 +753,7 @@ class AsyncIcapClient(IcapProtocol):
                 chunked_body = await self._read_chunked_body(body_start)
                 response_data += chunked_body
 
-        return response_data
+        return IcapResponse.parse(response_data)
 
     async def _read_chunked_body(self, initial_data: bytes) -> bytes:
         """Read a chunked transfer encoded body.
@@ -890,8 +879,7 @@ class AsyncIcapClient(IcapProtocol):
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
             # Receive initial response (could be 100 Continue, 204, or 200)
-            response_data = await self._receive_response()
-            response = IcapResponse.parse(response_data)
+            response = await self._receive_response()
 
             # If server responds with 100 Continue, send the rest of the body
             if response.status_code == 100:
@@ -906,8 +894,7 @@ class AsyncIcapClient(IcapProtocol):
                 await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
                 # Receive final response
-                response_data = await self._receive_response()
-                response = IcapResponse.parse(response_data)
+                response = await self._receive_response()
 
             # Check for server errors
             if 500 <= response.status_code < 600:
