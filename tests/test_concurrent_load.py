@@ -156,7 +156,7 @@ async def test_mixed_workload(icap_service, load_metrics: LoadTestMetrics):
                 response = await client.reqmod(
                     icap_service["service"],
                     http_request,
-                    request_body=content,
+                    http_body=content,
                 )
                 if response.is_no_modification or response.is_success:
                     load_metrics.record_success((time.perf_counter() - start) * 1000)

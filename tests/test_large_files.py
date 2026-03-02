@@ -127,7 +127,8 @@ def test_chunked_stream_1mb_chunks(icap_service, large_file_10mb: Path):
 def test_large_file_with_preview(icap_service, large_file_100mb: Path):
     """Test scanning a large file with preview mode enabled.
 
-    First queries OPTIONS to get preview size, then uses it for the scan.
+    First queries OPTIONS to get preview size, then uses respmod with preview.
+    Note: scan_file() doesn't support preview, so we use the lower-level respmod().
     """
     with IcapClient(icap_service["host"], icap_service["port"]) as client:
         # Get preview size from server
@@ -140,10 +141,21 @@ def test_large_file_with_preview(icap_service, large_file_100mb: Path):
 
         preview_size = int(preview_size_str)
 
-        # Scan with preview
-        response = client.scan_file(
-            large_file_100mb,
-            service=icap_service["service"],
+        # Read file and build HTTP response for respmod
+        content = large_file_100mb.read_bytes()
+        http_request = b"GET /test HTTP/1.1\r\nHost: test\r\n\r\n"
+        http_response = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: application/octet-stream\r\n"
+            b"Content-Length: " + str(len(content)).encode() + b"\r\n"
+            b"\r\n"
+        ) + content
+
+        # Scan with preview using respmod
+        response = client.respmod(
+            icap_service["service"],
+            http_request,
+            http_response,
             preview=preview_size,
         )
 
