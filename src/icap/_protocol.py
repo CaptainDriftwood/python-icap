@@ -4,8 +4,13 @@ This module contains protocol-level constants and request building logic
 shared between the sync IcapClient and async AsyncIcapClient.
 """
 
+from __future__ import annotations
+
 import re
+from dataclasses import dataclass
 from typing import Dict, Optional
+
+from .exception import IcapProtocolError
 
 # Characters that are invalid in header names (per RFC 7230)
 # Header names must be tokens: 1*tchar where tchar excludes CTLs, separators
@@ -135,3 +140,179 @@ class IcapProtocol:
             Zero-length chunk terminator bytes
         """
         return b"0\r\n\r\n"
+
+
+# =============================================================================
+# Shared Protocol Utilities
+# =============================================================================
+# These functions contain pure protocol logic shared between sync and async
+# clients. They perform no I/O operations.
+
+
+@dataclass
+class ResponseHeaders:
+    """Parsed response header information."""
+
+    content_length: int | None
+    """Content-Length header value, or None if not present."""
+
+    is_chunked: bool
+    """True if Transfer-Encoding: chunked is present."""
+
+
+@dataclass
+class PreviewData:
+    """Data prepared for preview mode transmission."""
+
+    preview_chunk: bytes
+    """Encoded preview chunk including terminator (with ieof if complete)."""
+
+    remainder: bytes
+    """Remaining body data to send after 100 Continue."""
+
+    is_complete: bool
+    """True if entire body fits in preview (no remainder needed)."""
+
+
+def parse_response_headers(headers_str: str) -> ResponseHeaders:
+    """Parse response headers to extract Content-Length and Transfer-Encoding.
+
+    This function extracts the information needed to determine how to read
+    the response body: by Content-Length, by chunked encoding, or no body.
+
+    Args:
+        headers_str: Raw headers string (decoded from bytes, excluding the
+                     terminating CRLF CRLF)
+
+    Returns:
+        ResponseHeaders with content_length and is_chunked fields.
+
+    Raises:
+        IcapProtocolError: If Content-Length header has an invalid value.
+    """
+    content_length: int | None = None
+    is_chunked = False
+
+    for line in headers_str.split("\r\n")[1:]:  # Skip status line
+        if ":" in line:
+            key, value = line.split(":", 1)
+            key_lower = key.strip().lower()
+            value_stripped = value.strip().lower()
+
+            if key_lower == "content-length":
+                try:
+                    content_length = int(value.strip())
+                except ValueError:
+                    raise IcapProtocolError(
+                        f"Invalid Content-Length header: {value.strip()!r}"
+                    ) from None
+            elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
+                is_chunked = True
+
+    return ResponseHeaders(content_length=content_length, is_chunked=is_chunked)
+
+
+def parse_chunk_size(size_line: bytes, max_size: int) -> int:
+    """Parse and validate a chunk size line from chunked transfer encoding.
+
+    Per RFC 7230, chunk size is a hex number optionally followed by extensions
+    after a semicolon. This function parses the size and validates it against
+    the maximum allowed size.
+
+    Args:
+        size_line: Raw chunk size line (without trailing CRLF)
+        max_size: Maximum allowed chunk size in bytes
+
+    Returns:
+        The parsed chunk size as an integer.
+
+    Raises:
+        IcapProtocolError: If the chunk size is invalid or exceeds max_size.
+    """
+    try:
+        # Chunk size may have extensions after semicolon, ignore them
+        chunk_size = int(size_line.split(b";")[0].strip(), 16)
+    except ValueError:
+        raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}") from None
+
+    if chunk_size > max_size:
+        raise IcapProtocolError(
+            f"Chunk size ({chunk_size:,} bytes) exceeds maximum allowed size ({max_size:,} bytes)"
+        )
+
+    return chunk_size
+
+
+def validate_body_size(current_size: int, max_size: int) -> None:
+    """Validate that body size doesn't exceed maximum allowed.
+
+    Args:
+        current_size: Current accumulated body size in bytes
+        max_size: Maximum allowed size in bytes
+
+    Raises:
+        IcapProtocolError: If current_size exceeds max_size.
+    """
+    if current_size > max_size:
+        raise IcapProtocolError(
+            f"Chunked response body ({current_size:,} bytes) exceeds "
+            f"maximum allowed size ({max_size:,} bytes)"
+        )
+
+
+def validate_content_length(content_length: int, max_size: int) -> None:
+    """Validate Content-Length against maximum allowed size.
+
+    Args:
+        content_length: Declared content length in bytes
+        max_size: Maximum allowed size in bytes
+
+    Raises:
+        IcapProtocolError: If content_length exceeds max_size.
+    """
+    if content_length > max_size:
+        raise IcapProtocolError(
+            f"Response Content-Length ({content_length:,} bytes) exceeds "
+            f"maximum allowed size ({max_size:,} bytes)"
+        )
+
+
+def prepare_preview_data(
+    body: bytes,
+    preview_size: int,
+    encode_chunked: callable,
+    encode_terminator: callable,
+) -> PreviewData:
+    """Prepare body data for preview mode transmission.
+
+    Splits the body into preview and remainder portions, and encodes the
+    preview chunk with appropriate terminator (ieof if complete).
+
+    Per RFC 3507 Section 4.5, if the entire body fits within the preview,
+    the zero-length chunk terminator should include the "ieof" extension
+    to indicate no more data follows.
+
+    Args:
+        body: Full body content to be sent
+        preview_size: Maximum bytes to include in preview
+        encode_chunked: Function to encode data as a chunk (IcapProtocol._encode_chunked)
+        encode_terminator: Function to get terminator (IcapProtocol._encode_chunk_terminator)
+
+    Returns:
+        PreviewData with encoded preview_chunk, remainder, and is_complete flag.
+    """
+    preview_data = body[:preview_size]
+    remainder = body[preview_size:]
+    is_complete = len(body) <= preview_size
+
+    # Build the preview chunk
+    preview_chunk = encode_chunked(preview_data)
+
+    if is_complete:
+        # Use ieof on zero-length chunk to indicate no more data
+        preview_chunk += b"0; ieof\r\n\r\n"
+    else:
+        # Normal zero-length terminator for preview section
+        preview_chunk += encode_terminator()
+
+    return PreviewData(preview_chunk=preview_chunk, remainder=remainder, is_complete=is_complete)

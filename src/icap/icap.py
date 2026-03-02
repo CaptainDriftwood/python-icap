@@ -4,7 +4,14 @@ import ssl
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, Iterator, Optional, Union
 
-from ._protocol import IcapProtocol
+from ._protocol import (
+    IcapProtocol,
+    parse_chunk_size,
+    parse_response_headers,
+    prepare_preview_data,
+    validate_body_size,
+    validate_content_length,
+)
 from .exception import IcapConnectionError, IcapProtocolError, IcapServerError, IcapTimeoutError
 from .response import IcapResponse
 
@@ -724,25 +731,11 @@ class IcapClient(IcapProtocol):
                 header_section, body_start = response_data.split(header_end_marker, 1)
                 headers_str = header_section.decode("utf-8", errors="ignore")
 
-                # Parse headers into dict for easier lookup
-                content_length = None
-                is_chunked = False
-                for line in headers_str.split("\r\n")[1:]:
-                    if ":" in line:
-                        key, value = line.split(":", 1)
-                        key_lower = key.strip().lower()
-                        value_stripped = value.strip().lower()
-                        if key_lower == "content-length":
-                            try:
-                                content_length = int(value.strip())
-                            except ValueError:
-                                raise IcapProtocolError(
-                                    f"Invalid Content-Length header: {value.strip()!r}"
-                                ) from None
-                        elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
-                            is_chunked = True
+                # Parse headers to determine body handling
+                headers = parse_response_headers(headers_str)
 
-                if content_length is not None:
+                if headers.content_length is not None:
+                    content_length = headers.content_length
                     # Read exactly Content-Length bytes
                     logger.debug(f"Reading {content_length} bytes of body content")
                     response_data = header_section + header_end_marker
@@ -764,7 +757,7 @@ class IcapClient(IcapProtocol):
                             f"Incomplete response: expected {content_length} bytes, got {bytes_read}"
                         )
 
-                elif is_chunked:
+                elif headers.is_chunked:
                     # Read chunked transfer encoding
                     logger.debug("Reading chunked response body")
                     response_data = header_section + header_end_marker
@@ -819,20 +812,9 @@ class IcapClient(IcapProtocol):
                     raise IcapProtocolError("Connection closed before chunked body complete")
                 buffer += chunk
 
-            # Parse chunk size (hex)
+            # Parse and validate chunk size
             size_line, buffer = buffer.split(b"\r\n", 1)
-            try:
-                # Chunk size may have extensions after semicolon, ignore them
-                chunk_size = int(size_line.split(b";")[0].strip(), 16)
-            except ValueError:
-                raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}") from None
-
-            # Validate chunk size against maximum allowed
-            if chunk_size > self._max_response_size:
-                raise IcapProtocolError(
-                    f"Chunk size ({chunk_size:,} bytes) exceeds "
-                    f"maximum allowed size ({self._max_response_size:,} bytes)"
-                )
+            chunk_size = parse_chunk_size(size_line, self._max_response_size)
 
             if chunk_size == 0:
                 # Final chunk - read trailing CRLF
@@ -849,11 +831,7 @@ class IcapClient(IcapProtocol):
             body += buffer[:chunk_size]
 
             # Validate total body size against maximum allowed
-            if len(body) > self._max_response_size:
-                raise IcapProtocolError(
-                    f"Chunked response body ({len(body):,} bytes) exceeds "
-                    f"maximum allowed size ({self._max_response_size:,} bytes)"
-                )
+            validate_body_size(len(body), self._max_response_size)
 
             buffer = buffer[chunk_size + 2 :]  # Skip chunk data and CRLF
 
@@ -878,30 +856,19 @@ class IcapClient(IcapProtocol):
             raise IcapConnectionError("Not connected to ICAP server")
 
         try:
-            # Determine preview and remainder portions
-            preview_data = body[:preview_size]
-            remainder_data = body[preview_size:]
-            is_complete = len(body) <= preview_size
-
-            logger.debug(
-                f"Sending preview: {len(preview_data)} bytes, "
-                f"remainder: {len(remainder_data)} bytes, "
-                f"complete in preview: {is_complete}"
+            # Prepare preview data using shared utility
+            preview = prepare_preview_data(
+                body, preview_size, self._encode_chunked, self._encode_chunk_terminator
             )
 
-            # Build the preview chunk
-            # Per RFC 3507 Section 4.5, use "ieof" extension on the zero-length
-            # terminator chunk when the entire body fits in preview
-            preview_chunk = self._encode_chunked(preview_data)
-            if is_complete:
-                # Use ieof on zero-length chunk to indicate no more data
-                preview_chunk += b"0; ieof\r\n\r\n"
-            else:
-                # Normal zero-length terminator for preview section
-                preview_chunk += self._encode_chunk_terminator()
+            logger.debug(
+                f"Sending preview: {preview_size} bytes, "
+                f"remainder: {len(preview.remainder)} bytes, "
+                f"complete in preview: {preview.is_complete}"
+            )
 
             # Send request with preview
-            self._socket.sendall(request + preview_chunk)
+            self._socket.sendall(request + preview.preview_chunk)
 
             # Receive initial response (could be 100 Continue, 204, or 200)
             response = self._receive_response()
@@ -911,8 +878,8 @@ class IcapClient(IcapProtocol):
                 logger.debug("Received 100 Continue, sending remainder of body")
 
                 # Send the remainder of the body
-                if remainder_data:
-                    self._socket.sendall(self._encode_chunked(remainder_data))
+                if preview.remainder:
+                    self._socket.sendall(self._encode_chunked(preview.remainder))
 
                 # Send final zero-length chunk
                 self._socket.sendall(self._encode_chunk_terminator())
