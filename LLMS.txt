@@ -54,7 +54,9 @@ Import from `icap`:
 
 - `IcapClient(address, port=1344, timeout=10, ssl_context=None)` - Synchronous client
 - `AsyncIcapClient(address, port=1344, timeout=10.0, ssl_context=None)` - Async client
-- `IcapResponse` - Response object with `status_code`, `headers`, `body`, `is_success`, `is_no_modification`
+- `IcapResponse` - Response object with `status_code`, `headers`, `body`, `is_success`, `is_no_modification`, `encapsulated`, `istag`
+- `EncapsulatedParts` - Dataclass for parsed Encapsulated header offsets (`req_hdr`, `req_body`, `res_hdr`, `res_body`, `null_body`, `opt_body`)
+- `CaseInsensitiveDict` - Case-insensitive dictionary for ICAP headers (per RFC 3507)
 
 ### High-Level Methods (Recommended)
 
@@ -67,6 +69,16 @@ Import from `icap`:
 - `options(service)` - Query server capabilities
 - `respmod(service, http_request, http_response, headers=None, preview=None)` - Response modification
 - `reqmod(service, http_request, http_body=None, headers=None)` - Request modification
+
+### IcapResponse Properties
+
+- `status_code` - ICAP status code (200, 204, etc.)
+- `headers` - Case-insensitive header dictionary
+- `body` - Response body bytes
+- `is_success` - True for 2xx status codes
+- `is_no_modification` - True for 204 (content is clean)
+- `encapsulated` - Parsed `EncapsulatedParts` from Encapsulated header (or None)
+- `istag` - ISTag header value for cache validation (RFC 3507 Section 4.7)
 
 ### Connection Management
 
@@ -106,6 +118,14 @@ response = IcapResponseBuilder().virus("Trojan.Gen").build()  # Virus detected
 response = IcapResponseBuilder().error(503, "Unavailable").build()  # Error
 ```
 
+### Pre-built Response Fixtures
+
+- `icap_response_clean` - 204 No Modification response
+- `icap_response_virus` - Virus detection response (X-Virus-ID: EICAR-Test)
+- `icap_response_options` - OPTIONS response with server capabilities
+- `icap_response_error` - 500 Server Error response
+- `icap_response_builder` - Factory fixture returning `IcapResponseBuilder`
+
 ### MockIcapClient
 
 ```python
@@ -129,6 +149,31 @@ def test_virus(icap_mock):
     assert not icap_mock.scan_bytes(b"data").is_no_modification
 ```
 
+### Advanced Mock Features
+
+```python
+from icap.pytest_plugin import MockIcapClient, IcapResponseBuilder, MatcherBuilder
+
+# Conditional responses based on content
+client = MockIcapClient()
+client.when(
+    MatcherBuilder().body_contains(b"EICAR").build()
+).respond(IcapResponseBuilder().virus("EICAR-Test").build())
+client.default_response(IcapResponseBuilder().clean().build())
+
+# Call inspection
+response = client.scan_bytes(b"test")
+call = client.last_call
+assert call.method == "scan_bytes"
+assert call.args[0] == b"test"
+
+# Strict mode (fails if no matching response)
+@pytest.mark.icap_mock(strict=True)
+def test_strict(icap_mock):
+    icap_mock.on_respmod(IcapResponseBuilder().clean().build())
+    # MockResponseExhaustedError if called more times than configured
+```
+
 ## Project Structure
 
 ```
@@ -136,13 +181,18 @@ src/icap/
 ├── __init__.py          # Public API exports
 ├── icap.py              # Synchronous IcapClient
 ├── async_icap.py        # AsyncIcapClient
-├── response.py          # IcapResponse class
+├── response.py          # IcapResponse, EncapsulatedParts, CaseInsensitiveDict
 ├── exception.py         # Custom exceptions
-├── _protocol.py         # Shared protocol constants
+├── _protocol.py         # Shared protocol utilities
 └── pytest_plugin/       # Bundled pytest plugin
     ├── plugin.py        # Fixtures and markers
-    ├── mock.py          # MockIcapClient
-    └── builder.py       # IcapResponseBuilder
+    ├── builder.py       # IcapResponseBuilder
+    ├── mock_client.py   # MockIcapClient (sync)
+    ├── mock_async.py    # MockAsyncIcapClient
+    ├── matchers.py      # ResponseMatcher, MatcherBuilder
+    ├── call_record.py   # MockCall for call inspection
+    ├── protocols.py     # ResponseCallback protocols
+    └── mock.py          # Re-exports for backward compatibility
 ```
 
 ## Common Service Names
