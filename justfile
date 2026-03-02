@@ -11,7 +11,7 @@ check: lint typecheck test
 
 # Run unit tests (parallel by default)
 test *args:
-    uv run pytest -m "not integration" -n auto {{ args }}
+    uv run pytest -m "not integration and not benchmark" -n auto {{ args }}
 
 # Run integration tests (requires Docker)
 test-integration *args:
@@ -160,6 +160,17 @@ clean:
 # Build package
 build:
     uv build
+
+# Run performance benchmarks (requires Docker)
+benchmark *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Starting ICAP server..."
+    docker compose -f docker/docker-compose.yml up -d
+    echo "Waiting for services to initialize..."
+    sleep 30
+    trap "echo 'Stopping ICAP server...'; docker compose -f docker/docker-compose.yml down" EXIT
+    uv run pytest -m "benchmark" --benchmark-only {{ args }}
 
 # Run a full CI-like check
 ci: fmt-check lint typecheck test

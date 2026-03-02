@@ -60,6 +60,7 @@ markers = [
     "docker: marks tests requiring Docker (deselect with '-m \"not docker\"')",
     "ssl: marks tests requiring SSL/TLS certificates (run: just generate-certs)",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "benchmark: marks performance benchmark tests (run: just benchmark)",
     "icap(host, port, timeout, ssl_context): configure ICAP client for testing",
     "icap_mock(response, virus_name, raises, options, respmod, reqmod): configure mock ICAP client",
 ]
@@ -70,6 +71,8 @@ filterwarnings = [
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
     # Ignore pytest-asyncio warning in pytester subprocess tests (our main config has it set)
     "ignore:The configuration option \"asyncio_default_fixture_loop_scope\" is unset:pytest.PytestDeprecationWarning",
+    # Ignore pytest-benchmark warning when running with xdist (benchmarks are excluded from parallel runs)
+    "ignore:Benchmarks are automatically disabled because xdist plugin is active:pytest_benchmark.logger.PytestBenchmarkWarning",
 ]
 
 [tool.ruff]
@@ -105,10 +108,12 @@ dev = [
     "nox-uv>=0.2.0; python_version >= '3.9'",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-benchmark>=4.0.0",
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
     "pytest-timeout>=2.0.0",
     "pytest-xdist>=3.0.0",
+    "rembg[cli,cpu]>=2.0.61",
     "ruff>=0.1.0",
     "setuptools>=75.3.2",  # Required for PyCharm's test runner
     "testcontainers>=4.0.0; python_version >= '3.9'",
