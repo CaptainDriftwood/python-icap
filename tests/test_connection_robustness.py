@@ -13,14 +13,14 @@ import time
 
 import pytest
 
+from icap import AsyncIcapClient, IcapClient
+from tests.conftest import wait_for_icap_service
+
 # TODO: These tests are flaky in CI due to the Docker-based ICAP server returning
 # unexpected 307 redirects. The tests pass locally but fail intermittently in GitHub
 # Actions. Investigation needed into the CI Docker environment configuration.
 # See: https://github.com/CaptainDriftwood/python-icap/pull/42
 CI = os.environ.get("CI", "false").lower() == "true"
-
-from icap import AsyncIcapClient, IcapClient
-from tests.conftest import wait_for_icap_service
 
 # EICAR test string for virus detection
 EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
