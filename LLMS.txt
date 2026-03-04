@@ -52,8 +52,8 @@ asyncio.run(scan())
 
 Import from `icap`:
 
-- `IcapClient(address, port=1344, timeout=10, ssl_context=None)` - Synchronous client
-- `AsyncIcapClient(address, port=1344, timeout=10.0, ssl_context=None)` - Async client
+- `IcapClient(address, port=1344, timeout=10, ssl_context=None, max_response_size=104857600)` - Synchronous client
+- `AsyncIcapClient(address, port=1344, timeout=10.0, ssl_context=None, max_response_size=104857600)` - Async client (max_response_size limits response size to prevent DoS, default 100MB)
 - `IcapResponse` - Response object with `status_code`, `headers`, `body`, `is_success`, `is_no_modification`, `encapsulated`, `istag`
 - `EncapsulatedParts` - Dataclass for parsed Encapsulated header offsets (`req_hdr`, `req_body`, `res_hdr`, `res_body`, `null_body`, `opt_body`)
 - `CaseInsensitiveDict` - Case-insensitive dictionary for ICAP headers (per RFC 3507)
