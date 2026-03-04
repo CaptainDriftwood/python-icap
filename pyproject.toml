@@ -114,7 +114,7 @@ dev = [
     "pytest-timeout>=2.0.0",
     "pytest-xdist>=3.0.0",
     "ruff>=0.1.0",
-    "setuptools>=75.3.2",  # Required for PyCharm's test runner
+    "setuptools>=78.1.1; python_version >= '3.9'",  # Required for PyCharm's test runner; >=78.1.1 fixes GHSA-5rjg-fvgr-3xxf
     "testcontainers>=4.0.0; python_version >= '3.9'",
     "ty>=0.0.8",
 ]
