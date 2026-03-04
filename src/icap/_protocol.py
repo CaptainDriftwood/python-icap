@@ -239,6 +239,9 @@ def parse_chunk_size(size_line: bytes, max_size: int) -> int:
     except ValueError:
         raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}") from None
 
+    if chunk_size < 0:
+        raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}")
+
     if chunk_size > max_size:
         raise IcapProtocolError(
             f"Chunk size ({chunk_size:,} bytes) exceeds maximum allowed size ({max_size:,} bytes)"
