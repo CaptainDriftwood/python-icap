@@ -113,7 +113,6 @@ dev = [
     "pytest-mock>=3.10.0",
     "pytest-timeout>=2.0.0",
     "pytest-xdist>=3.0.0",
-    "rembg[cli,cpu]>=2.0.61",
     "ruff>=0.1.0",
     "setuptools>=75.3.2",  # Required for PyCharm's test runner
     "testcontainers>=4.0.0; python_version >= '3.9'",
