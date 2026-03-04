@@ -781,6 +781,27 @@ class AsyncIcapClient(IcapProtocol):
             chunk_size = parse_chunk_size(size_line, self._max_response_size)
 
             if chunk_size == 0:
+                # Final chunk - consume trailing CRLF (and any trailer headers)
+                # Per RFC 7230, after the 0-size chunk there may be trailer headers
+                # followed by a final CRLF. We need to read until we see the empty line.
+                while True:
+                    while b"\r\n" not in buffer:
+                        try:
+                            chunk = await asyncio.wait_for(
+                                self._reader.read(self.BUFFER_SIZE),
+                                timeout=self._timeout,
+                            )
+                            if not chunk:
+                                break
+                            buffer += chunk
+                        except asyncio.TimeoutError:
+                            break
+                    if b"\r\n" not in buffer:
+                        break
+                    line, buffer = buffer.split(b"\r\n", 1)
+                    if not line:
+                        # Empty line signals end of chunked body
+                        break
                 break
 
             # Read chunk data
