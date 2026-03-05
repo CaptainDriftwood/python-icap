@@ -60,6 +60,7 @@ markers = [
     "docker: marks tests requiring Docker (deselect with '-m \"not docker\"')",
     "ssl: marks tests requiring SSL/TLS certificates (run: just generate-certs)",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "benchmark: marks performance benchmark tests (run: just benchmark)",
     "icap(host, port, timeout, ssl_context): configure ICAP client for testing",
     "icap_mock(response, virus_name, raises, options, respmod, reqmod): configure mock ICAP client",
 ]
@@ -70,6 +71,8 @@ filterwarnings = [
     "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning",
     # Ignore pytest-asyncio warning in pytester subprocess tests (our main config has it set)
     "ignore:The configuration option \"asyncio_default_fixture_loop_scope\" is unset:pytest.PytestDeprecationWarning",
+    # Ignore pytest-benchmark warning when running with xdist (benchmarks are excluded from parallel runs)
+    "ignore:Benchmarks are automatically disabled because xdist plugin is active:pytest_benchmark.logger.PytestBenchmarkWarning",
 ]
 
 [tool.ruff]
@@ -100,16 +103,19 @@ indent-style = "space"
 [dependency-groups]
 dev = [
     "coverage[toml]>=7.0.0",
+    "hypothesis>=6.0.0",
     "nox>=2024.0.0",
     "nox-uv>=0.2.0; python_version >= '3.9'",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-benchmark>=4.0.0",
     "pytest-cov>=4.0.0",
     "pytest-mock>=3.10.0",
     "pytest-timeout>=2.0.0",
+    "pytest-xdist>=3.0.0",
     "ruff>=0.1.0",
-    "setuptools>=75.3.2",  # Required for PyCharm's test runner
-    "testcontainers>=3.7.0",
+    "setuptools>=78.1.1; python_version >= '3.9'",  # Required for PyCharm's test runner; >=78.1.1 fixes GHSA-5rjg-fvgr-3xxf
+    "testcontainers>=4.0.0; python_version >= '3.9'",
     "ty>=0.0.8",
 ]
 
@@ -118,22 +124,67 @@ source = ["icap"]
 branch = true
 parallel = true
 omit = [
-    # Import-time only files - class/import definitions execute before coverage starts
-    # due to pytest plugin loading order
+    # Import-time only files - executed before coverage starts
     "*/icap/__init__.py",
     "*/icap/exception.py",
     "*/icap/pytest_plugin/plugin.py",
+    # Base protocol class - only tested via subclasses in integration tests
+    "*/icap/_protocol.py",
 ]
 
 [tool.coverage.report]
+# Show missing line numbers in terminal output
+show_missing = true
+
+# Don't clutter report with fully-covered files
+skip_covered = true
+
+# Don't show files with no executable statements
+skip_empty = true
+
 exclude_lines = [
+    # Standard pragmas
     "pragma: no cover",
+
+    # Type checking imports (never executed at runtime)
     "if TYPE_CHECKING:",
+
+    # Main script guard
     "if __name__ == .__main__.:",
+
+    # Abstract method markers
     "raise NotImplementedError",
-    # Exclude docstrings (use literal strings for regex backslashes)
+    "@abstractmethod",
+
+    # Ellipsis (used in stubs/protocols)
+    "^\\s*\\.\\.\\.$",
+
+    # Pass statements (empty implementations)
+    "^\\s*pass\\s*$",
+
+    # Simple property getters/setters returning private attributes
+    "^\\s*return self\\._\\w+\\s*$",
+
+    # Defensive assertions that shouldn't trigger
+    "raise AssertionError",
+
+    # Docstring delimiters
     '^\\s*"""',
     "^\\s*'''",
     '^\\s*r"""',
     "^\\s*r'''",
+
+    # Docstring section headers (Google/NumPy style)
+    "^\\s*Args:\\s*$",
+    "^\\s*Returns:\\s*$",
+    "^\\s*Raises:\\s*$",
+    "^\\s*Example:\\s*$",
+    "^\\s*Examples:\\s*$",
+    "^\\s*Attributes:\\s*$",
+    "^\\s*Note:\\s*$",
+    "^\\s*See Also:\\s*$",
+
+    # Doctest examples in docstrings
+    "^\\s*>>>",
+    "^\\s*\\.\\.\\.",
 ]

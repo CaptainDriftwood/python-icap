@@ -4,9 +4,16 @@ import asyncio
 import logging
 import ssl
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, Optional, Union
+from typing import Any, AsyncIterator, BinaryIO, Dict, Optional, Union
 
-from ._protocol import IcapProtocol
+from ._protocol import (
+    IcapProtocol,
+    parse_chunk_size,
+    parse_response_headers,
+    prepare_preview_data,
+    validate_body_size,
+    validate_content_length,
+)
 from .exception import IcapConnectionError, IcapProtocolError, IcapServerError, IcapTimeoutError
 from .response import IcapResponse
 
@@ -79,12 +86,19 @@ class AsyncIcapClient(IcapProtocol):
         - IcapResponse: Response object returned by all methods
     """
 
+    # Default maximum response size (100MB)
+    DEFAULT_MAX_RESPONSE_SIZE: int = 104_857_600
+
+    # Maximum header section size (64KB) - prevents DoS from endless headers
+    MAX_HEADER_SIZE: int = 65536
+
     def __init__(
         self,
         address: str,
         port: int = IcapProtocol.DEFAULT_PORT,
         timeout: float = 10.0,
         ssl_context: Optional[ssl.SSLContext] = None,
+        max_response_size: int = DEFAULT_MAX_RESPONSE_SIZE,
     ) -> None:
         """
         Initialize async ICAP client.
@@ -92,11 +106,17 @@ class AsyncIcapClient(IcapProtocol):
         Args:
             address: ICAP server hostname or IP address
             port: ICAP server port (default: 1344)
-            timeout: Operation timeout in seconds (default: 10.0)
+            timeout: Operation timeout in seconds (default: 10.0). Accepts float
+                for sub-second precision (e.g., 0.5 for 500ms). Note: the sync
+                IcapClient uses int for timeout due to socket.settimeout() semantics.
             ssl_context: Optional SSL context for TLS connections. If provided,
                 the connection will be wrapped with SSL/TLS. You can create a
                 context using ssl.create_default_context() for standard TLS,
                 or customize it for specific certificate requirements.
+            max_response_size: Maximum allowed response size in bytes (default: 100MB).
+                This limits both Content-Length values and individual chunk sizes
+                in chunked transfer encoding. Increase this if you need to scan
+                files larger than 100MB. Must be a positive integer.
 
         Example:
             >>> # Standard TLS with system CA certificates
@@ -106,11 +126,17 @@ class AsyncIcapClient(IcapProtocol):
             >>> # TLS with custom CA certificate
             >>> ssl_ctx = ssl.create_default_context(cafile='/path/to/ca.pem')
             >>> client = AsyncIcapClient('icap.example.com', ssl_context=ssl_ctx)
+
+            >>> # Scanning large files (up to 500MB)
+            >>> client = AsyncIcapClient('localhost', max_response_size=500_000_000)
         """
+        if max_response_size <= 0:
+            raise ValueError("max_response_size must be a positive integer")
         self._address: str = address
         self._port: int = port
         self._timeout: float = timeout
         self._ssl_context: Optional[ssl.SSLContext] = ssl_context
+        self._max_response_size: int = max_response_size
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
         logger.debug(
@@ -194,13 +220,29 @@ class AsyncIcapClient(IcapProtocol):
 
     async def options(self, service: str) -> IcapResponse:
         """
-        Send OPTIONS request to ICAP server.
+        Send OPTIONS request to query ICAP server capabilities.
+
+        The OPTIONS request retrieves information about the ICAP service,
+        including supported methods, preview size, and transfer encodings.
 
         Args:
             service: ICAP service name (e.g., "avscan")
 
         Returns:
-            IcapResponse object
+            IcapResponse with headers containing server capabilities:
+                - Methods: Supported ICAP methods (e.g., "RESPMOD, REQMOD")
+                - Preview: Suggested preview size in bytes for this service
+                - Transfer-Preview: File extensions that benefit from preview
+                - Max-Connections: Maximum concurrent connections allowed
+                - Options-TTL: How long (seconds) to cache this OPTIONS response
+                - Service-ID: Unique identifier for this service instance
+
+        Example:
+            >>> async with AsyncIcapClient('localhost') as client:
+            ...     response = await client.options("avscan")
+            ...     preview_size = int(response.headers.get("Preview", 0))
+            ...     methods = response.headers.get("Methods", "")
+            ...     print(f"Preview: {preview_size}, Methods: {methods}")
         """
         if self._writer is None:
             await self.connect()
@@ -413,9 +455,12 @@ class AsyncIcapClient(IcapProtocol):
             stream: File-like object (must support read())
             service: ICAP service name (default: "avscan")
             filename: Optional filename to use in HTTP headers
-            chunk_size: If > 0, stream data in chunks of this size (bytes).
-                       This uses chunked transfer encoding to avoid loading
-                       the entire file into memory.
+            chunk_size: Controls memory usage for large files.
+                - 0 (default): Reads entire stream into memory before sending.
+                  Simple but may exhaust memory for very large files.
+                - >0: Uses chunked streaming, reading and sending in chunks of
+                  this size (bytes). Set to 65536 for 64KB chunks, 1048576 for 1MB.
+                  Recommended for files larger than available memory.
 
         Returns:
             IcapResponse object
@@ -548,19 +593,14 @@ class AsyncIcapClient(IcapProtocol):
             logger.debug(f"Sent {total_bytes} bytes in chunked encoding")
 
             # Receive response
-            response_data = await self._receive_response()
+            response = await self._receive_response()
 
         except asyncio.TimeoutError:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from None
         except OSError as e:
-            self._connected = False
+            self._writer = None
+            self._reader = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
-
-        # Parse response
-        try:
-            response = IcapResponse.parse(response_data)
-        except ValueError as e:
-            raise IcapProtocolError(f"Failed to parse ICAP response: {e}") from e
 
         # Check for server errors
         if 500 <= response.status_code < 600:
@@ -570,7 +610,7 @@ class AsyncIcapClient(IcapProtocol):
 
         return response
 
-    async def _iter_chunks(self, stream: BinaryIO, chunk_size: int):
+    async def _iter_chunks(self, stream: BinaryIO, chunk_size: int) -> AsyncIterator[bytes]:
         """Iterate over a stream in chunks, yielding each chunk asynchronously."""
         loop = asyncio.get_running_loop()
         while True:
@@ -602,9 +642,9 @@ class AsyncIcapClient(IcapProtocol):
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
             # Receive response
-            response_data = await self._receive_response()
+            response = await self._receive_response()
 
-            logger.debug(f"Received {len(response_data)} bytes from ICAP server")
+            logger.debug(f"Received response: {response.status_code} {response.status_message}")
 
         except asyncio.TimeoutError as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
@@ -618,11 +658,6 @@ class AsyncIcapClient(IcapProtocol):
             self._reader = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
-        try:
-            response = IcapResponse.parse(response_data)
-        except ValueError as e:
-            raise IcapProtocolError(f"Failed to parse ICAP response: {e}") from e
-
         # Check for server errors
         if 500 <= response.status_code < 600:
             raise IcapServerError(
@@ -631,8 +666,8 @@ class AsyncIcapClient(IcapProtocol):
 
         return response
 
-    async def _receive_response(self) -> bytes:
-        """Receive and return raw ICAP response data."""
+    async def _receive_response(self) -> IcapResponse:
+        """Receive and parse ICAP response from the server."""
         if self._reader is None:
             raise IcapConnectionError("Not connected to ICAP server")
 
@@ -649,6 +684,13 @@ class AsyncIcapClient(IcapProtocol):
                 if not chunk:
                     break
                 response_data += chunk
+
+                # Prevent DoS from endless header data
+                if len(response_data) > self.MAX_HEADER_SIZE:
+                    raise IcapProtocolError(
+                        f"Response header section exceeds maximum size "
+                        f"({self.MAX_HEADER_SIZE:,} bytes)"
+                    )
             except asyncio.TimeoutError:
                 raise IcapTimeoutError(
                     f"Timeout reading response from {self.host}:{self.port}"
@@ -659,24 +701,14 @@ class AsyncIcapClient(IcapProtocol):
             header_section, body_start = response_data.split(header_end_marker, 1)
             headers_str = header_section.decode("utf-8", errors="ignore")
 
-            content_length = None
-            is_chunked = False
-            for line in headers_str.split("\r\n")[1:]:
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    key_lower = key.strip().lower()
-                    value_stripped = value.strip().lower()
-                    if key_lower == "content-length":
-                        try:
-                            content_length = int(value.strip())
-                        except ValueError:
-                            raise IcapProtocolError(
-                                f"Invalid Content-Length header: {value.strip()!r}"
-                            ) from None
-                    elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
-                        is_chunked = True
+            # Parse headers to determine body handling
+            headers = parse_response_headers(headers_str)
 
-            if content_length is not None:
+            if headers.content_length is not None:
+                content_length = headers.content_length
+                # Validate content length against maximum allowed size
+                validate_content_length(content_length, self._max_response_size)
+
                 # Read exactly Content-Length bytes
                 logger.debug(f"Reading {content_length} bytes of body content")
                 response_data = header_section + header_end_marker
@@ -704,14 +736,14 @@ class AsyncIcapClient(IcapProtocol):
                         f"Incomplete response: expected {content_length} bytes, got {bytes_read}"
                     )
 
-            elif is_chunked:
+            elif headers.is_chunked:
                 # Read chunked transfer encoding
                 logger.debug("Reading chunked response body")
                 response_data = header_section + header_end_marker
                 chunked_body = await self._read_chunked_body(body_start)
                 response_data += chunked_body
 
-        return response_data
+        return IcapResponse.parse(response_data)
 
     async def _read_chunked_body(self, initial_data: bytes) -> bytes:
         """Read a chunked transfer encoded body.
@@ -744,14 +776,32 @@ class AsyncIcapClient(IcapProtocol):
                         f"Timeout reading chunked body from {self.host}:{self.port}"
                     ) from None
 
-            # Parse chunk size (hex)
+            # Parse and validate chunk size
             size_line, buffer = buffer.split(b"\r\n", 1)
-            try:
-                chunk_size = int(size_line.split(b";")[0].strip(), 16)
-            except ValueError:
-                raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}") from None
+            chunk_size = parse_chunk_size(size_line, self._max_response_size)
 
             if chunk_size == 0:
+                # Final chunk - consume trailing CRLF (and any trailer headers)
+                # Per RFC 7230, after the 0-size chunk there may be trailer headers
+                # followed by a final CRLF. We need to read until we see the empty line.
+                while True:
+                    while b"\r\n" not in buffer:
+                        try:
+                            chunk = await asyncio.wait_for(
+                                self._reader.read(self.BUFFER_SIZE),
+                                timeout=self._timeout,
+                            )
+                            if not chunk:
+                                break
+                            buffer += chunk
+                        except asyncio.TimeoutError:
+                            break
+                    if b"\r\n" not in buffer:
+                        break
+                    line, buffer = buffer.split(b"\r\n", 1)
+                    if not line:
+                        # Empty line signals end of chunked body
+                        break
                 break
 
             # Read chunk data
@@ -770,6 +820,10 @@ class AsyncIcapClient(IcapProtocol):
                     ) from None
 
             body += buffer[:chunk_size]
+
+            # Validate total body size against maximum allowed
+            validate_body_size(len(body), self._max_response_size)
+
             buffer = buffer[chunk_size + 2 :]
 
         return body
@@ -795,51 +849,38 @@ class AsyncIcapClient(IcapProtocol):
             raise IcapConnectionError("Not connected to ICAP server")
 
         try:
-            # Determine preview and remainder portions
-            preview_data = body[:preview_size]
-            remainder_data = body[preview_size:]
-            is_complete = len(body) <= preview_size
-
-            logger.debug(
-                f"Sending preview: {len(preview_data)} bytes, "
-                f"remainder: {len(remainder_data)} bytes, "
-                f"complete in preview: {is_complete}"
+            # Prepare preview data using shared utility
+            preview = prepare_preview_data(
+                body, preview_size, self._encode_chunked, self._encode_chunk_terminator
             )
 
-            # Build the preview chunk
-            # Per RFC 3507 Section 4.5, use "ieof" extension on the zero-length
-            # terminator chunk when the entire body fits in preview
-            preview_chunk = self._encode_chunked(preview_data)
-            if is_complete:
-                # Use ieof on zero-length chunk to indicate no more data
-                preview_chunk += b"0; ieof\r\n\r\n"
-            else:
-                # Normal zero-length terminator for preview section
-                preview_chunk += self._encode_chunk_terminator()
+            logger.debug(
+                f"Sending preview: {preview_size} bytes, "
+                f"remainder: {len(preview.remainder)} bytes, "
+                f"complete in preview: {preview.is_complete}"
+            )
 
             # Send request with preview
-            self._writer.write(request + preview_chunk)
+            self._writer.write(request + preview.preview_chunk)
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
             # Receive initial response (could be 100 Continue, 204, or 200)
-            response_data = await self._receive_response()
-            response = IcapResponse.parse(response_data)
+            response = await self._receive_response()
 
             # If server responds with 100 Continue, send the rest of the body
             if response.status_code == 100:
                 logger.debug("Received 100 Continue, sending remainder of body")
 
                 # Send the remainder of the body
-                if remainder_data:
-                    self._writer.write(self._encode_chunked(remainder_data))
+                if preview.remainder:
+                    self._writer.write(self._encode_chunked(preview.remainder))
 
                 # Send final zero-length chunk
                 self._writer.write(self._encode_chunk_terminator())
                 await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
                 # Receive final response
-                response_data = await self._receive_response()
-                response = IcapResponse.parse(response_data)
+                response = await self._receive_response()
 
             # Check for server errors
             if 500 <= response.status_code < 600:
