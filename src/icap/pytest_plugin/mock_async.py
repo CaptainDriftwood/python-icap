@@ -169,6 +169,12 @@ class MockAsyncIcapClient(MockIcapClient):
         """Simulate async disconnection (no-op)."""
         self._connected = False
 
+    def __enter__(self) -> MockAsyncIcapClient:
+        raise TypeError("Use 'async with' instead of 'with' for MockAsyncIcapClient")
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+        raise TypeError("Use 'async with' instead of 'with' for MockAsyncIcapClient")
+
     async def __aenter__(self) -> MockAsyncIcapClient:
         await self.connect()
         return self

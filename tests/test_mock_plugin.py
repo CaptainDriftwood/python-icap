@@ -318,6 +318,15 @@ async def test_async_mock_client_context_manager():
     assert not client.is_connected
 
 
+def test_async_mock_client_rejects_sync_context_manager():
+    """Sync `with` on MockAsyncIcapClient raises TypeError instead of silently
+    leaving the unawaited connect() coroutine and bogus connection state."""
+    client = MockAsyncIcapClient()
+    with pytest.raises(TypeError, match="async with"):
+        with client:
+            pass
+
+
 @pytest.mark.asyncio
 async def test_async_mock_client_records_calls():
     """Async mock records method calls."""
