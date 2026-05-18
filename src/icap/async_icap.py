@@ -208,6 +208,22 @@ class AsyncIcapClient(IcapProtocol):
             self._writer = None
             self._reader = None
 
+    def _drop_transport(self) -> None:
+        """Drop transport references after a fatal connection error.
+
+        Best-effort close of the writer; clears reader/writer so is_connected
+        reflects reality and the next call reconnects rather than reusing a
+        torn-down transport. Safe to call on any failure path, including
+        asyncio.CancelledError.
+        """
+        if self._writer is not None:
+            try:
+                self._writer.close()
+            except Exception:
+                pass
+        self._writer = None
+        self._reader = None
+
     async def __aenter__(self) -> "AsyncIcapClient":
         """Async context manager entry."""
         await self.connect()
@@ -597,9 +613,11 @@ class AsyncIcapClient(IcapProtocol):
 
         except asyncio.TimeoutError:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from None
+        except asyncio.CancelledError:
+            self._drop_transport()
+            raise
         except OSError as e:
-            self._writer = None
-            self._reader = None
+            self._drop_transport()
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
         # Check for server errors
@@ -648,14 +666,11 @@ class AsyncIcapClient(IcapProtocol):
 
         except asyncio.TimeoutError as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
+        except asyncio.CancelledError:
+            self._drop_transport()
+            raise
         except (ConnectionResetError, BrokenPipeError, OSError) as e:
-            if self._writer is not None:
-                try:
-                    self._writer.close()
-                except Exception:
-                    pass  # Best effort cleanup
-            self._writer = None
-            self._reader = None
+            self._drop_transport()
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
         # Check for server errors
@@ -893,12 +908,9 @@ class AsyncIcapClient(IcapProtocol):
 
         except asyncio.TimeoutError as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
+        except asyncio.CancelledError:
+            self._drop_transport()
+            raise
         except (ConnectionResetError, BrokenPipeError, OSError) as e:
-            if self._writer is not None:
-                try:
-                    self._writer.close()
-                except Exception:
-                    pass  # Best effort cleanup
-            self._writer = None
-            self._reader = None
+            self._drop_transport()
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e

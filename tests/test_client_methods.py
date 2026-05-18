@@ -468,6 +468,31 @@ async def test_async_receive_response_simple():
 
 
 @pytest.mark.asyncio
+async def test_async_cancellation_drops_transport():
+    """asyncio.CancelledError during _send_and_receive must drop transport
+    state so a stale writer/reader isn't reused on the next call."""
+    import asyncio
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = MagicMock()
+    mock_writer.write = MagicMock()
+    mock_writer.drain = AsyncMock(side_effect=asyncio.CancelledError())
+    mock_writer.close = MagicMock()
+    mock_reader = AsyncMock()
+
+    client._writer = mock_writer
+    client._reader = mock_reader
+
+    with pytest.raises(asyncio.CancelledError):
+        await client._send_and_receive(b"some request")
+
+    assert client._writer is None
+    assert client._reader is None
+    assert not client.is_connected
+
+
+@pytest.mark.asyncio
 async def test_async_iter_chunks():
     """Test async chunk iteration."""
     from io import BytesIO
