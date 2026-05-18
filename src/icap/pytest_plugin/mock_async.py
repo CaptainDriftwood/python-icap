@@ -243,6 +243,7 @@ class MockAsyncIcapClient(MockIcapClient):
         self,
         filepath: str | Path,
         service: str = "avscan",
+        chunk_size: int = 0,
     ) -> IcapResponse:
         """Scan a file (mocked)."""
         filepath = Path(filepath)
@@ -255,6 +256,7 @@ class MockAsyncIcapClient(MockIcapClient):
             filepath=str(filepath),
             service=service,
             data=data,
+            chunk_size=chunk_size,
         )
         return await self._execute_call_async(call, "respmod")
 
@@ -263,6 +265,7 @@ class MockAsyncIcapClient(MockIcapClient):
         stream: BinaryIO,
         service: str = "avscan",
         filename: str | None = None,
+        chunk_size: int = 0,
     ) -> IcapResponse:
         """Scan a stream (mocked)."""
         data = stream.read()
@@ -271,6 +274,7 @@ class MockAsyncIcapClient(MockIcapClient):
             data=data,
             service=service,
             filename=filename,
+            chunk_size=chunk_size,
         )
         return await self._execute_call_async(call, "respmod")
 

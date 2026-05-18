@@ -417,13 +417,20 @@ class IcapClient(IcapProtocol):
         logger.debug(f"REQMOD response: {response.status_code} {response.status_message}")
         return response
 
-    def scan_file(self, filepath: Union[str, Path], service: str = "avscan") -> IcapResponse:
+    def scan_file(
+        self,
+        filepath: Union[str, Path],
+        service: str = "avscan",
+        chunk_size: int = 0,
+    ) -> IcapResponse:
         """
         Convenience method to scan a file using RESPMOD.
 
         Args:
             filepath: Path to the file to scan (string or Path object)
             service: ICAP service name (default: "avscan")
+            chunk_size: Forwarded to scan_stream. 0 reads the whole file into
+                memory before sending; >0 streams in chunks of that size.
 
         Returns:
             IcapResponse object
@@ -441,7 +448,9 @@ class IcapClient(IcapProtocol):
             raise FileNotFoundError(f"File not found: {filepath}")
 
         with open(filepath, "rb") as f:
-            return self.scan_stream(f, service=service, filename=filepath.name)
+            return self.scan_stream(
+                f, service=service, filename=filepath.name, chunk_size=chunk_size
+            )
 
     def scan_stream(
         self,

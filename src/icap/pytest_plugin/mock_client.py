@@ -156,6 +156,9 @@ class MockIcapClient:
         self,
         host: str = "mock-icap-server",
         port: int = 1344,
+        timeout: float = 10.0,
+        ssl_context: Any = None,
+        max_response_size: int = 104_857_600,
         *,
         strict: bool = False,
     ) -> None:
@@ -167,12 +170,18 @@ class MockIcapClient:
                   This value is stored but not used for actual connections.
             port: Mock server port (default: 1344).
                   This value is stored but not used for actual connections.
+            timeout: Accepted for parity with IcapClient. Not used.
+            ssl_context: Accepted for parity with IcapClient. Not used.
+            max_response_size: Accepted for parity with IcapClient. Not used.
             strict: If True, enables strict mode validation. Use
                     assert_all_responses_used() to verify all configured
                     responses were consumed. Default: False.
         """
         self._host = host
         self._port = port
+        self._timeout = timeout
+        self._ssl_context = ssl_context
+        self._max_response_size = max_response_size
         self._connected = False
         self._strict = strict
         self._calls: list[MockCall] = []
@@ -1330,6 +1339,7 @@ class MockIcapClient:
         self,
         filepath: str | Path,
         service: str = "avscan",
+        chunk_size: int = 0,
     ) -> IcapResponse:
         """Scan a file (mocked - actually reads the file)."""
         filepath = Path(filepath)
@@ -1342,6 +1352,7 @@ class MockIcapClient:
             filepath=str(filepath),
             service=service,
             data=data,
+            chunk_size=chunk_size,
         )
         return self._execute_call(call, "respmod")
 

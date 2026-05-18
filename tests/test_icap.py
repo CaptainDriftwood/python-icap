@@ -73,6 +73,27 @@ def test_port_setter_valid():
     assert client.port == 8080
 
 
+def test_async_port_setter_valid():
+    """AsyncIcapClient must support port setter for parity with IcapClient."""
+    client = AsyncIcapClient("localhost", 1344)
+    client.port = 8080
+    assert client.port == 8080
+
+
+def test_async_port_setter_invalid():
+    client = AsyncIcapClient("localhost", 1344)
+    with pytest.raises(TypeError):
+        client.port = "not-an-int"  # type: ignore[assignment]
+
+
+def test_mock_client_accepts_parity_kwargs():
+    """MockIcapClient must accept the same kwargs as IcapClient so test
+    fixtures can swap real and mock clients without TypeError."""
+    from icap.pytest_plugin import MockIcapClient
+
+    MockIcapClient("h", 1344, timeout=5.0, ssl_context=None, max_response_size=1000)
+
+
 def test_port_setter_invalid():
     """Test setting an invalid port raises TypeError."""
     client = IcapClient("localhost")

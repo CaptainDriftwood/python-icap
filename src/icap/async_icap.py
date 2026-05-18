@@ -153,6 +153,12 @@ class AsyncIcapClient(IcapProtocol):
         """Return the server port."""
         return self._port
 
+    @port.setter
+    def port(self, p: int) -> None:
+        if not isinstance(p, int):
+            raise TypeError("Port is not a valid type. Please enter an int value.")
+        self._port = p
+
     @property
     def is_connected(self) -> bool:
         """Return True if the client is currently connected to the server."""
@@ -428,6 +434,7 @@ class AsyncIcapClient(IcapProtocol):
         self,
         filepath: Union[str, Path],
         service: str = "avscan",
+        chunk_size: int = 0,
     ) -> IcapResponse:
         """
         Convenience method to scan a file using RESPMOD.
@@ -435,6 +442,8 @@ class AsyncIcapClient(IcapProtocol):
         Args:
             filepath: Path to the file to scan (string or Path object)
             service: ICAP service name (default: "avscan")
+            chunk_size: Forwarded to scan_stream. 0 reads the whole file into
+                memory before sending; >0 streams in chunks of that size.
 
         Returns:
             IcapResponse object
@@ -451,11 +460,15 @@ class AsyncIcapClient(IcapProtocol):
         if not filepath.exists():
             raise FileNotFoundError(f"File not found: {filepath}")
 
-        # Read file in executor to avoid blocking the event loop
+        # Delegate to scan_stream so chunk_size is honored (matches sync client).
         loop = asyncio.get_running_loop()
-        content = await loop.run_in_executor(None, filepath.read_bytes)
-
-        return await self.scan_bytes(content, service=service, filename=filepath.name)
+        f = await loop.run_in_executor(None, lambda: open(filepath, "rb"))
+        try:
+            return await self.scan_stream(
+                f, service=service, filename=filepath.name, chunk_size=chunk_size
+            )
+        finally:
+            await loop.run_in_executor(None, f.close)
 
     async def scan_stream(
         self,
