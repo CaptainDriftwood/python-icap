@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Callable
+from urllib.parse import quote
 
 from .exception import IcapProtocolError
 
@@ -19,6 +20,11 @@ _INVALID_HEADER_NAME_CHARS = re.compile(r"[\x00-\x1f\x7f()<>@,;:\\\"/\[\]?={} \t
 # Characters that are invalid in header values (control chars except HTAB)
 # CRLF injection is the main concern - values must not contain CR or LF
 _INVALID_HEADER_VALUE_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+
+# Conservative character class for ICAP service names. Service names appear
+# verbatim in the request line ("OPTIONS icap://host:port/<service> ICAP/1.0"),
+# so anything outside a safe URI-path subset risks request-line injection.
+_VALID_SERVICE_NAME = re.compile(r"^[A-Za-z0-9._\-/]+$")
 
 
 class IcapProtocol:
@@ -80,13 +86,38 @@ class IcapProtocol:
         """Build encapsulated HTTP request header for file scanning.
 
         Args:
-            filename: Optional filename to include in the request path
+            filename: Optional filename to include in the request path. The
+                filename is URL-encoded so that characters legal in a POSIX
+                filename (including spaces and CR/LF) cannot inject extra
+                headers or corrupt the request line.
 
         Returns:
             HTTP request header bytes
         """
-        resource = f"/{filename}" if filename else "/scan"
+        if filename:
+            resource = "/" + quote(filename, safe="")
+        else:
+            resource = "/scan"
         return f"GET {resource} HTTP/1.1\r\nHost: file-scan\r\n\r\n".encode()
+
+    @staticmethod
+    def _validate_service_name(service: str) -> None:
+        """Validate that a service name is safe to interpolate into the request line.
+
+        The request line ("OPTIONS icap://host:port/<service> ICAP/1.0") is not
+        escape-aware; a CR/LF or space in the service name would corrupt
+        framing. Reject anything outside a conservative URI-path subset.
+
+        Raises:
+            ValueError: If the service name is empty or contains invalid characters.
+        """
+        if not service:
+            raise ValueError("Service name cannot be empty")
+        if not _VALID_SERVICE_NAME.match(service):
+            raise ValueError(
+                f"Invalid service name {service!r}: only letters, digits, "
+                "'.', '_', '-', '/' are allowed"
+            )
 
     def _build_http_response_header(self, content_length: int) -> bytes:
         """Build encapsulated HTTP response header for file scanning.

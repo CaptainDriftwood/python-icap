@@ -260,6 +260,7 @@ class AsyncIcapClient(IcapProtocol):
             ...     methods = response.headers.get("Methods", "")
             ...     print(f"Preview: {preview_size}, Methods: {methods}")
         """
+        self._validate_service_name(service)
         if self._writer is None:
             await self.connect()
 
@@ -302,6 +303,7 @@ class AsyncIcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
+        self._validate_service_name(service)
         if self._writer is None:
             await self.connect()
 
@@ -385,6 +387,7 @@ class AsyncIcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
+        self._validate_service_name(service)
         if self._writer is None:
             await self.connect()
 
@@ -556,6 +559,7 @@ class AsyncIcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
+        self._validate_service_name(service)
         if not self.is_connected:
             await self.connect()
 

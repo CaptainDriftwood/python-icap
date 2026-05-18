@@ -223,6 +223,40 @@ def test_protocol_build_http_request_header_without_filename():
     assert result == b"GET /scan HTTP/1.1\r\nHost: file-scan\r\n\r\n"
 
 
+def test_protocol_build_http_request_header_url_encodes_filename():
+    """Filename is URL-encoded so CRLF, spaces, and other URI-unsafe characters
+    cannot inject headers or break the request line."""
+    from icap._protocol import IcapProtocol
+
+    protocol = IcapProtocol()
+    result = protocol._build_http_request_header("virus.exe\r\nEvil: x")
+
+    assert b"\r\nEvil: x" not in result.split(b"\r\n", 1)[0]
+    assert b"GET /virus.exe%0D%0AEvil%3A%20x HTTP/1.1\r\n" in result
+
+
+def test_protocol_validate_service_name_rejects_crlf():
+    """Service name with CRLF must be rejected before it reaches the wire."""
+    from icap._protocol import IcapProtocol
+
+    with pytest.raises(ValueError, match="Invalid service name"):
+        IcapProtocol._validate_service_name("avscan\r\nEvil: x")
+
+
+def test_protocol_validate_service_name_rejects_empty():
+    from icap._protocol import IcapProtocol
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        IcapProtocol._validate_service_name("")
+
+
+def test_protocol_validate_service_name_accepts_typical_names():
+    from icap._protocol import IcapProtocol
+
+    for name in ("avscan", "srv_clamav".replace("_", "-"), "echo", "scan/v1", "v1.0"):
+        IcapProtocol._validate_service_name(name)
+
+
 def test_protocol_build_http_response_header():
     """Test _build_http_response_header method."""
     from icap._protocol import IcapProtocol

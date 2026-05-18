@@ -248,6 +248,7 @@ class IcapClient(IcapProtocol):
             ...     methods = response.headers.get("Methods", "")
             ...     print(f"Preview: {preview_size}, Methods: {methods}")
         """
+        self._validate_service_name(service)
         if self._socket is None:
             self.connect()
 
@@ -291,6 +292,7 @@ class IcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
+        self._validate_service_name(service)
         if self._socket is None:
             self.connect()
 
@@ -375,6 +377,7 @@ class IcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
+        self._validate_service_name(service)
         if self._socket is None:
             self.connect()
 
@@ -506,6 +509,7 @@ class IcapClient(IcapProtocol):
         Returns:
             IcapResponse object
         """
+        self._validate_service_name(service)
         if self._socket is None:
             self.connect()
 
