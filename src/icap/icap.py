@@ -10,6 +10,7 @@ from ._protocol import (
     parse_response_headers,
     prepare_preview_data,
     validate_body_size,
+    validate_content_length,
 )
 from .exception import IcapConnectionError, IcapProtocolError, IcapServerError, IcapTimeoutError
 from .response import IcapResponse
@@ -735,6 +736,7 @@ class IcapClient(IcapProtocol):
 
                 if headers.content_length is not None:
                     content_length = headers.content_length
+                    validate_content_length(content_length, self._max_response_size)
                     # Read exactly Content-Length bytes
                     logger.debug(f"Reading {content_length} bytes of body content")
                     response_data = header_section + header_end_marker
