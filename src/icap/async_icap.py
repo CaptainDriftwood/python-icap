@@ -565,7 +565,7 @@ class AsyncIcapClient(IcapProtocol):
 
         icap_headers = {
             "Host": f"{self.host}:{self.port}",
-            "User-Agent": "Python-ICAP-Client/1.0",
+            "User-Agent": self.USER_AGENT,
             "Allow": "204",
             "Encapsulated": f"req-hdr=0, res-hdr={req_hdr_len}, res-body={req_hdr_len + res_hdr_len}",
         }
