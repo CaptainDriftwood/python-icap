@@ -144,6 +144,36 @@ def test_receive_response_not_connected():
     assert "Not connected" in str(exc_info.value)
 
 
+def test_receive_response_with_chunked_body():
+    """Test receiving a chunked-encoded response body via the streaming path.
+
+    Previously the sync _receive_response only handled Content-Length; a server
+    returning a chunked body would leave raw chunk framing in response.body.
+    """
+    client = IcapClient("localhost", 1344)
+
+    response_bytes = (
+        b"ICAP/1.0 200 OK\r\n"
+        b"Transfer-Encoding: chunked\r\n"
+        b"\r\n"
+        b"5\r\nhello\r\n"
+        b"6\r\n world\r\n"
+        b"0\r\n\r\n"
+    )
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = response_bytes
+
+    client._socket = mock_socket
+
+    response = client._receive_response()
+
+    assert response.status_code == 200
+    # Body should be decoded (no raw chunk framing left behind)
+    assert b"5\r\nhello" not in response.body
+    assert b"hello world" in response.body
+
+
 def test_scan_stream_chunked_sends_chunks():
     """Test that _scan_stream_chunked properly chunks data."""
     from io import BytesIO

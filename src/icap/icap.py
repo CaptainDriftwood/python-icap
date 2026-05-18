@@ -576,7 +576,17 @@ class IcapClient(IcapProtocol):
             yield chunk
 
     def _receive_response(self) -> IcapResponse:
-        """Receive and parse ICAP response from the socket."""
+        """Receive and parse ICAP response from the socket.
+
+        Handles all three body framings: Content-Length, Transfer-Encoding: chunked,
+        and no body (e.g., 204 responses).
+
+        Raises:
+            IcapConnectionError: If not connected or connection is lost.
+            IcapTimeoutError: If the operation times out.
+            IcapProtocolError: If the response cannot be parsed.
+            IcapServerError: If the server returns a 5xx error.
+        """
         if self._socket is None:
             raise IcapConnectionError("Not connected to ICAP server")
 
@@ -598,32 +608,17 @@ class IcapClient(IcapProtocol):
                         f"({self.MAX_HEADER_SIZE:,} bytes)"
                     )
 
-            # Parse headers to determine if there's a body
+            # Parse headers to determine if there's a body and how to read it
             if header_end_marker in response_data:
                 header_section, body_start = response_data.split(header_end_marker, 1)
                 headers_str = header_section.decode("utf-8", errors="ignore")
 
-                content_length = None
-                for line in headers_str.split("\r\n")[1:]:
-                    if ":" in line:
-                        key, value = line.split(":", 1)
-                        if key.strip().lower() == "content-length":
-                            try:
-                                content_length = int(value.strip())
-                            except ValueError:
-                                raise IcapProtocolError(
-                                    f"Invalid Content-Length header: {value.strip()!r}"
-                                ) from None
-                            break
+                headers = parse_response_headers(headers_str)
 
-                if content_length is not None:
-                    # Validate content length against maximum allowed size
-                    if content_length > self._max_response_size:
-                        raise IcapProtocolError(
-                            f"Response Content-Length ({content_length:,} bytes) exceeds "
-                            f"maximum allowed size ({self._max_response_size:,} bytes)"
-                        )
-
+                if headers.content_length is not None:
+                    content_length = headers.content_length
+                    validate_content_length(content_length, self._max_response_size)
+                    logger.debug(f"Reading {content_length} bytes of body content")
                     response_data = header_section + header_end_marker
                     bytes_read = len(body_start)
                     response_data += body_start
@@ -642,6 +637,14 @@ class IcapClient(IcapProtocol):
                         raise IcapProtocolError(
                             f"Incomplete response: expected {content_length} bytes, got {bytes_read}"
                         )
+
+                elif headers.is_chunked:
+                    logger.debug("Reading chunked response body")
+                    response_data = header_section + header_end_marker
+                    response_data += self._read_chunked_body(body_start)
+
+                else:
+                    logger.debug("No Content-Length header, using headers only")
 
             logger.debug(f"Received {len(response_data)} bytes from ICAP server")
 
@@ -707,88 +710,13 @@ class IcapClient(IcapProtocol):
         try:
             logger.debug(f"Sending {len(request)} bytes to ICAP server")
             self._socket.sendall(request)
-
-            # Receive response headers first
-            response_data = b""
-            header_end_marker = b"\r\n\r\n"
-
-            # Read until we get the complete headers
-            while header_end_marker not in response_data:
-                chunk = self._socket.recv(self.BUFFER_SIZE)
-                if not chunk:
-                    break
-                response_data += chunk
-
-                # Prevent DoS from endless header data
-                if len(response_data) > self.MAX_HEADER_SIZE:
-                    raise IcapProtocolError(
-                        f"Response header section exceeds maximum size "
-                        f"({self.MAX_HEADER_SIZE:,} bytes)"
-                    )
-
-            # Parse headers to determine if there's a body and how to read it
-            if header_end_marker in response_data:
-                header_section, body_start = response_data.split(header_end_marker, 1)
-                headers_str = header_section.decode("utf-8", errors="ignore")
-
-                # Parse headers to determine body handling
-                headers = parse_response_headers(headers_str)
-
-                if headers.content_length is not None:
-                    content_length = headers.content_length
-                    validate_content_length(content_length, self._max_response_size)
-                    # Read exactly Content-Length bytes
-                    logger.debug(f"Reading {content_length} bytes of body content")
-                    response_data = header_section + header_end_marker
-                    bytes_read = len(body_start)
-                    response_data += body_start
-
-                    while bytes_read < content_length:
-                        chunk = self._socket.recv(
-                            min(self.BUFFER_SIZE, content_length - bytes_read)
-                        )
-                        if not chunk:
-                            break
-                        response_data += chunk
-                        bytes_read += len(chunk)
-
-                    # Validate we received all expected bytes
-                    if bytes_read < content_length:
-                        raise IcapProtocolError(
-                            f"Incomplete response: expected {content_length} bytes, got {bytes_read}"
-                        )
-
-                elif headers.is_chunked:
-                    # Read chunked transfer encoding
-                    logger.debug("Reading chunked response body")
-                    response_data = header_section + header_end_marker
-                    chunked_body = self._read_chunked_body(body_start)
-                    response_data += chunked_body
-
-                else:
-                    # For responses without Content-Length (like 204), headers are enough
-                    logger.debug("No Content-Length header, using headers only")
-
-            logger.debug(f"Received {len(response_data)} bytes from ICAP server")
-
         except socket.timeout as e:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except OSError as e:
             self._socket = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
-        try:
-            response = IcapResponse.parse(response_data)
-        except ValueError as e:
-            raise IcapProtocolError(f"Failed to parse ICAP response: {e}") from e
-
-        # Check for server errors
-        if 500 <= response.status_code < 600:
-            raise IcapServerError(
-                f"ICAP server error: {response.status_code} {response.status_message}"
-            )
-
-        return response
+        return self._receive_response()
 
     def _read_chunked_body(self, initial_data: bytes) -> bytes:
         """Read a chunked transfer encoded body from the socket.
