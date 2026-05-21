@@ -935,6 +935,22 @@ def test_matcher_filename_pattern():
     assert response3.is_no_modification
 
 
+def test_matcher_filename_pattern_requires_full_match():
+    """filename_matches uses fullmatch semantics: a pattern matching only a
+    prefix of the filename does not trigger the matcher."""
+    client = MockIcapClient()
+    client.when(filename_matches=r"virus").respond(IcapResponseBuilder().virus("X").build())
+
+    # "virus" alone matches "virus" exactly
+    response1 = client.scan_bytes(b"content", filename="virus")
+    assert not response1.is_no_modification
+
+    # "virus" does NOT match "virus.exe" because the pattern doesn't cover
+    # the trailing ".exe" — users must write ".*virus.*" or similar.
+    response2 = client.scan_bytes(b"content", filename="virus.exe")
+    assert response2.is_no_modification
+
+
 def test_matcher_data_contains():
     """when(data_contains=) matches content containing bytes."""
     client = MockIcapClient()

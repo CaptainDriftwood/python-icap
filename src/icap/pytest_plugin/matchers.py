@@ -30,7 +30,10 @@ class ResponseMatcher:
     Attributes:
         service: Exact service name to match (e.g., "avscan").
         filename: Exact filename to match (e.g., "malware.exe").
-        filename_pattern: Compiled regex pattern to match against filename.
+        filename_pattern: Compiled regex pattern that must fully match the
+            filename (uses re.Pattern.fullmatch, so the pattern is anchored
+            at both ends). For substring matching, use ``.*`` explicitly:
+            ``r".*\\.exe$"``.
         data_contains: Bytes that must be present in the scanned content.
         response: The IcapResponse to return when this matcher matches.
         times: Maximum number of times this matcher can be used (None = unlimited).
@@ -93,7 +96,7 @@ class ResponseMatcher:
         # Check filename pattern match
         if self.filename_pattern is not None:
             filename = kwargs.get("filename")
-            if filename is None or not self.filename_pattern.match(filename):
+            if filename is None or not self.filename_pattern.fullmatch(filename):
                 return False
 
         # Check data contains
