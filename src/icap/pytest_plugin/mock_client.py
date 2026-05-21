@@ -830,7 +830,12 @@ class MockIcapClient:
         """
         matching = [c for c in self._calls if c.method == method]
         if not matching:
-            raise AssertionError(f"Method '{method}' was never called")
+            actual = {
+                m: sum(1 for c in self._calls if c.method == m) for m in self.call_counts_by_method
+            }
+            raise AssertionError(
+                f"Method '{method}' was never called. Actual calls: {actual or 'none'}"
+            )
         if times is not None and len(matching) != times:
             raise AssertionError(
                 f"Method '{method}' was called {len(matching)} times, expected {times}"
@@ -1184,7 +1189,7 @@ class MockIcapClient:
         self.connect()
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool | None:
         self.disconnect()
         return False
 

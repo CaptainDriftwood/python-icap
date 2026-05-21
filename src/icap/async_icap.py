@@ -157,11 +157,17 @@ class AsyncIcapClient(IcapProtocol):
     def port(self, p: int) -> None:
         if not isinstance(p, int):
             raise TypeError("Port is not a valid type. Please enter an int value.")
+        if not 0 < p <= 65535:
+            raise ValueError(f"Port must be in range 1-65535, got {p}")
         self._port = p
 
     @property
     def is_connected(self) -> bool:
-        """Return True if the client is currently connected to the server."""
+        """Return True if a writer is held, not necessarily that it is healthy.
+
+        A server-side close is only detected on the next failed I/O — until
+        then this property continues to return True for a stale connection.
+        """
         return self._writer is not None
 
     async def connect(self) -> None:
@@ -235,7 +241,7 @@ class AsyncIcapClient(IcapProtocol):
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Optional[bool]:
         """Async context manager exit."""
         await self.disconnect()
         return False
@@ -402,7 +408,6 @@ class AsyncIcapClient(IcapProtocol):
             f"REQMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
         )
 
-        req_hdr_offset = 0
         icap_headers = {
             "Host": f"{self.host}:{self.port}",
             "User-Agent": self.USER_AGENT,
@@ -411,10 +416,10 @@ class AsyncIcapClient(IcapProtocol):
 
         if http_body:
             body_offset = len(http_request)
-            icap_headers["Encapsulated"] = f"req-hdr={req_hdr_offset}, req-body={body_offset}"
+            icap_headers["Encapsulated"] = f"req-hdr=0, req-body={body_offset}"
         else:
             null_body_offset = len(http_request)
-            icap_headers["Encapsulated"] = f"req-hdr={req_hdr_offset}, null-body={null_body_offset}"
+            icap_headers["Encapsulated"] = f"req-hdr=0, null-body={null_body_offset}"
 
         if headers:
             icap_headers.update(headers)

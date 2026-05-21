@@ -85,7 +85,7 @@ class IcapClient(IcapProtocol):
         self,
         address: str,
         port: int = IcapProtocol.DEFAULT_PORT,
-        timeout: int = 10,
+        timeout: float = 10.0,
         ssl_context: Optional[ssl.SSLContext] = None,
         max_response_size: int = DEFAULT_MAX_RESPONSE_SIZE,
     ) -> None:
@@ -126,7 +126,7 @@ class IcapClient(IcapProtocol):
             raise ValueError("max_response_size must be a positive integer")
         self._address: str = address
         self._port: int = port
-        self._timeout: int = timeout
+        self._timeout: float = timeout
         self._ssl_context: Optional[ssl.SSLContext] = ssl_context
         self._max_response_size: int = max_response_size
         self._socket: Optional[Union[socket.socket, ssl.SSLSocket]] = None
@@ -150,11 +150,17 @@ class IcapClient(IcapProtocol):
     def port(self, p: int) -> None:
         if not isinstance(p, int):
             raise TypeError("Port is not a valid type. Please enter an int value.")
+        if not 0 < p <= 65535:
+            raise ValueError(f"Port must be in range 1-65535, got {p}")
         self._port = p
 
     @property
     def is_connected(self) -> bool:
-        """Return True if the client is currently connected to the server."""
+        """Return True if a socket is held, not necessarily that it is healthy.
+
+        A server-side close is only detected on the next failed I/O — until
+        then this property continues to return True for a stale connection.
+        """
         return self._socket is not None
 
     def connect(self) -> None:
@@ -226,7 +232,7 @@ class IcapClient(IcapProtocol):
         self.connect()
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Optional[bool]:
         """Context manager exit."""
         self.disconnect()
         return False
@@ -395,9 +401,6 @@ class IcapClient(IcapProtocol):
             f"REQMOD icap://{self.host}:{self.port}/{service} {self.ICAP_VERSION}{self.CRLF}"
         )
 
-        # Calculate encapsulated offsets
-        req_hdr_offset = 0
-
         icap_headers = {
             "Host": f"{self.host}:{self.port}",
             "User-Agent": self.USER_AGENT,
@@ -406,10 +409,10 @@ class IcapClient(IcapProtocol):
 
         if http_body:
             body_offset = len(http_request)
-            icap_headers["Encapsulated"] = f"req-hdr={req_hdr_offset}, req-body={body_offset}"
+            icap_headers["Encapsulated"] = f"req-hdr=0, req-body={body_offset}"
         else:
             null_body_offset = len(http_request)
-            icap_headers["Encapsulated"] = f"req-hdr={req_hdr_offset}, null-body={null_body_offset}"
+            icap_headers["Encapsulated"] = f"req-hdr=0, null-body={null_body_offset}"
 
         if headers:
             icap_headers.update(headers)
@@ -530,9 +533,7 @@ class IcapClient(IcapProtocol):
         self._validate_service_name(service)
         if self._socket is None:
             self.connect()
-
-        if self._socket is None:
-            raise IcapConnectionError("Not connected to ICAP server")
+        assert self._socket is not None  # connect() raises on failure
 
         logger.info(
             f"Scanning stream in chunks of {chunk_size} bytes{f' - {filename}' if filename else ''}"

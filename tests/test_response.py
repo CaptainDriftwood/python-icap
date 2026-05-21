@@ -277,11 +277,11 @@ def test_parse_status_code_not_integer():
 
 
 def test_istag_property_returns_value():
-    """ISTag property returns header value when present."""
+    """ISTag property returns header value with surrounding quotes stripped."""
     data = b'ICAP/1.0 200 OK\r\nISTag: "AV-2026030101"\r\nMethods: RESPMOD\r\n\r\n'
     response = IcapResponse.parse(data)
 
-    assert response.istag == '"AV-2026030101"'
+    assert response.istag == "AV-2026030101"
 
 
 def test_istag_property_returns_none_when_missing():
@@ -298,4 +298,4 @@ def test_istag_property_case_insensitive():
     data = b'ICAP/1.0 200 OK\r\nistag: "v1.0"\r\n\r\n'
     response = IcapResponse.parse(data)
 
-    assert response.istag == '"v1.0"'
+    assert response.istag == "v1.0"

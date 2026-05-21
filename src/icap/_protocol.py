@@ -26,6 +26,12 @@ _INVALID_HEADER_VALUE_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 # so anything outside a safe URI-path subset risks request-line injection.
 _VALID_SERVICE_NAME = re.compile(r"^[A-Za-z0-9._\-/]+$")
 
+# Chunked transfer encoding terminators (RFC 7230).
+CHUNK_TERMINATOR = b"0\r\n\r\n"
+# Terminator with "ieof" extension (RFC 3507 §4.5) signaling end of preview
+# when the entire body fit in the preview.
+CHUNK_TERMINATOR_IEOF = b"0; ieof\r\n\r\n"
+
 
 class IcapProtocol:
     """Base class with shared ICAP protocol constants and utilities."""
@@ -165,12 +171,8 @@ class IcapProtocol:
 
     @staticmethod
     def _encode_chunk_terminator() -> bytes:
-        """Return the chunk terminator sequence.
-
-        Returns:
-            Zero-length chunk terminator bytes
-        """
-        return b"0\r\n\r\n"
+        """Return the chunk terminator sequence."""
+        return CHUNK_TERMINATOR
 
 
 # =============================================================================
@@ -353,7 +355,7 @@ def prepare_preview_data(
 
     if is_complete:
         # Use ieof on zero-length chunk to indicate no more data
-        preview_chunk += b"0; ieof\r\n\r\n"
+        preview_chunk += CHUNK_TERMINATOR_IEOF
     else:
         # Normal zero-length terminator for preview section
         preview_chunk += encode_terminator()

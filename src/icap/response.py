@@ -1,4 +1,5 @@
 from dataclasses import dataclass, fields
+from functools import cached_property
 from typing import Dict, Iterator, MutableMapping, Optional
 
 from .exception import IcapProtocolError
@@ -229,14 +230,14 @@ class IcapResponse:
         """
         return self.status_code == 204
 
-    @property
+    @cached_property
     def encapsulated(self) -> Optional[EncapsulatedParts]:
         """
         Parse and return the Encapsulated header parts.
 
         The Encapsulated header indicates byte offsets of HTTP message parts
         within the ICAP response body. This helps identify which parts were
-        modified by the ICAP server.
+        modified by the ICAP server. Parsed once and cached on the response.
 
         Returns:
             EncapsulatedParts with parsed offsets, or None if no Encapsulated header.
@@ -268,14 +269,17 @@ class IcapResponse:
         a previous scan, cached results for unchanged files remain valid.
 
         Returns:
-            The ISTag string (including quotes if present), or None if not provided.
+            The ISTag string with surrounding quotes stripped, or None if not
+            provided. RFC 3507 wraps ISTag values in double quotes; we unwrap
+            them so callers can compare ``response.istag == "foo"`` without
+            worrying about whether the server quoted the value.
 
         Example:
             >>> # Get ISTag from OPTIONS response
             >>> response = client.options("avscan")
             >>> current_istag = response.istag
             >>> print(f"Service version: {current_istag}")
-            Service version: "AV-2026030101-signatures"
+            Service version: AV-2026030101-signatures
 
             >>> # Use for cache validation (application-level logic)
             >>> if current_istag == cached_istag:
@@ -283,7 +287,12 @@ class IcapResponse:
             ... else:
             ...     print("Service updated, rescan needed")
         """
-        return self.headers.get("ISTag")
+        value = self.headers.get("ISTag")
+        if value is None:
+            return None
+        if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+            return value[1:-1]
+        return value
 
     @classmethod
     def parse(cls, data: bytes) -> "IcapResponse":
@@ -329,7 +338,10 @@ class IcapResponse:
                 key, value = line.split(":", 1)
                 key = key.strip()
                 value = value.strip()
-                # Handle duplicate headers by combining with comma (RFC 7230 Section 3.2.2)
+                # Per RFC 7230 §3.2.2, repeated headers can be combined with
+                # commas when their grammar is a comma-separated list. ICAP
+                # headers in the wild don't repeat, so this is a defensive
+                # fallback; it would be lossy for HTTP headers like Set-Cookie.
                 if key in headers:
                     headers[key] = headers[key] + ", " + value
                 else:
