@@ -333,6 +333,26 @@ def test_preview_negative_raises_value_error():
     assert "positive integer" in str(exc_info.value)
 
 
+def test_preview_invalid_validated_even_with_empty_body():
+    """preview <= 0 must be rejected before any short-circuit on empty body.
+
+    Previously the preview validation was nested under `if http_res_body`,
+    so a programming error like preview=-1 against an empty response body
+    silently fell through to the non-preview path.
+    """
+    client = IcapClient("localhost", 1344)
+    client._connected = True
+    client._socket = MagicMock()
+
+    with pytest.raises(ValueError, match="positive integer"):
+        client.respmod(
+            "avscan",
+            b"GET / HTTP/1.1\r\n\r\n",
+            b"HTTP/1.1 200 OK\r\n\r\n",  # no body
+            preview=0,
+        )
+
+
 def test_response_with_empty_body():
     """Test parsing response with empty body."""
     response = IcapResponse.parse(b"ICAP/1.0 200 OK\r\nServer: Test\r\n\r\n")

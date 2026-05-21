@@ -345,6 +345,8 @@ class AsyncIcapClient(IcapProtocol):
 
         # Add Preview header if preview mode is requested
         if preview is not None:
+            if preview <= 0:
+                raise ValueError("preview size must be a positive integer")
             icap_headers["Preview"] = str(preview)
 
         if headers:
@@ -359,8 +361,6 @@ class AsyncIcapClient(IcapProtocol):
 
         # Handle preview mode
         if preview is not None and http_res_body:
-            if preview <= 0:
-                raise ValueError("preview size must be a positive integer")
             return await self._send_with_preview(request, http_res_body, preview)
 
         # Add encapsulated body with chunked transfer encoding
