@@ -123,6 +123,13 @@ class MockAsyncIcapClient(MockIcapClient):
         }
         return default_responses[method], "default"
 
+    @staticmethod
+    def _validate_callback(
+        callback: ResponseCallback | AsyncResponseCallback,
+    ) -> None:
+        """Async mock accepts both sync and async callbacks."""
+        return
+
     async def _execute_call_async(self, call: MockCall, response_method: str) -> IcapResponse:
         """
         Execute a recorded call and update it with response metadata (async version).

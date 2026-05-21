@@ -7,6 +7,7 @@ that can be used in tests without requiring a real ICAP server.
 
 from __future__ import annotations
 
+import inspect
 import time
 from collections import deque
 from pathlib import Path
@@ -151,6 +152,23 @@ class MockIcapClient:
         ResponseMatcher: Dataclass for content-based matching rules.
         MatcherBuilder: Fluent API for creating matchers via when().
     """
+
+    @staticmethod
+    def _validate_callback(
+        callback: ResponseCallback | AsyncResponseCallback,
+    ) -> None:
+        """Validate a callback for this client type.
+
+        The sync mock rejects async callables since calling them returns an
+        unawaited coroutine that ends up stored as the IcapResponse, producing
+        confusing test failures. MockAsyncIcapClient overrides this to be a
+        no-op.
+        """
+        if inspect.iscoroutinefunction(callback):
+            raise TypeError(
+                "Async callbacks are not supported on MockIcapClient. "
+                "Use MockAsyncIcapClient instead."
+            )
 
     def __init__(
         self,
@@ -368,6 +386,7 @@ class MockIcapClient:
             ResponseCallback: Protocol defining the callback signature.
         """
         if callback is not None:
+            self._validate_callback(callback)
             # Callback mode: clear other configurations
             self._response_queues["respmod"].clear()
             self._queue_active["respmod"] = False

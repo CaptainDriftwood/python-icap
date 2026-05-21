@@ -935,6 +935,19 @@ def test_matcher_filename_pattern():
     assert response3.is_no_modification
 
 
+def test_sync_mock_rejects_async_callback():
+    """Registering an async callback on the sync mock raises TypeError at
+    registration time. Otherwise the call returned an unawaited coroutine
+    stored as the IcapResponse, producing impossible-to-diagnose failures."""
+
+    async def async_cb(data: bytes, **kwargs):
+        return IcapResponseBuilder().clean().build()
+
+    client = MockIcapClient()
+    with pytest.raises(TypeError, match="Async callbacks are not supported"):
+        client.on_respmod(callback=async_cb)
+
+
 def test_matcher_filename_pattern_requires_full_match():
     """filename_matches uses fullmatch semantics: a pattern matching only a
     prefix of the filename does not trigger the matcher."""

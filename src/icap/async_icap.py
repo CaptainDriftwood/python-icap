@@ -625,8 +625,8 @@ class AsyncIcapClient(IcapProtocol):
             await self._writer.drain()
             logger.debug(f"Sent {total_bytes} bytes in chunked encoding")
 
-            # Receive response
-            response = await self._receive_response()
+            # Receive response with aggregate timeout
+            response = await asyncio.wait_for(self._receive_response(), timeout=self._timeout)
 
         except asyncio.TimeoutError:
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from None
@@ -676,8 +676,9 @@ class AsyncIcapClient(IcapProtocol):
             self._writer.write(request)
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
-            # Receive response
-            response = await self._receive_response()
+            # Aggregate timeout: a drip-feeding server can't satisfy each
+            # per-read wait_for while exceeding self._timeout overall.
+            response = await asyncio.wait_for(self._receive_response(), timeout=self._timeout)
 
             logger.debug(f"Received response: {response.status_code} {response.status_message}")
 
@@ -897,7 +898,7 @@ class AsyncIcapClient(IcapProtocol):
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
             # Receive initial response (could be 100 Continue, 204, or 200)
-            response = await self._receive_response()
+            response = await asyncio.wait_for(self._receive_response(), timeout=self._timeout)
 
             # If server responds with 100 Continue, send the rest of the body
             if response.status_code == 100:
@@ -912,7 +913,7 @@ class AsyncIcapClient(IcapProtocol):
                 await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
                 # Receive final response
-                response = await self._receive_response()
+                response = await asyncio.wait_for(self._receive_response(), timeout=self._timeout)
 
             # Check for server errors
             if 500 <= response.status_code < 600:
