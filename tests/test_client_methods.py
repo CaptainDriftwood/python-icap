@@ -1155,7 +1155,7 @@ async def test_async_receive_response_empty_on_first_read():
     client._reader = mock_reader
 
     # Empty response data fails to parse as valid ICAP response
-    with pytest.raises(ValueError, match="Invalid ICAP status line"):
+    with pytest.raises(IcapProtocolError, match="Invalid ICAP status line"):
         await client._receive_response()
 
 

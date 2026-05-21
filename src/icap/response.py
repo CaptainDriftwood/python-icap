@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Dict, Iterator, MutableMapping, Optional
 
+from .exception import IcapProtocolError
+
 __all__ = ["CaseInsensitiveDict", "EncapsulatedParts", "IcapResponse"]
 
 
@@ -298,13 +300,18 @@ class IcapResponse:
         # Expected format: ICAP/1.0 200 OK
         status_parts = status_line.split(" ", 2)
         if len(status_parts) < 3:
-            raise ValueError(f"Invalid ICAP status line: {status_line}")
+            raise IcapProtocolError(f"Invalid ICAP status line: {status_line}")
 
-        status_code = int(status_parts[1])
+        try:
+            status_code = int(status_parts[1])
+        except ValueError:
+            raise IcapProtocolError(
+                f"Invalid ICAP status code: {status_parts[1]!r} (not an integer)"
+            ) from None
 
         # Validate status code is in valid HTTP/ICAP range (100-599)
         if not (100 <= status_code <= 599):
-            raise ValueError(f"Invalid ICAP status code: {status_code} (must be 100-599)")
+            raise IcapProtocolError(f"Invalid ICAP status code: {status_code} (must be 100-599)")
         status_message = status_parts[2]
 
         headers: CaseInsensitiveDict = CaseInsensitiveDict()

@@ -16,27 +16,27 @@ from icap import IcapClient, IcapResponse
 from icap.exception import IcapProtocolError, IcapServerError
 
 
-def test_invalid_status_line_raises_value_error():
-    """Test that invalid status line raises ValueError."""
-    with pytest.raises(ValueError):
+def test_invalid_status_line_raises_protocol_error():
+    """Invalid status line raises IcapProtocolError (the project's custom type)."""
+    with pytest.raises(IcapProtocolError):
         IcapResponse.parse(b"ICAP/1.0\r\n\r\n")
 
 
-def test_malformed_status_code_raises_value_error():
-    """Test that non-numeric status code raises ValueError during parsing."""
-    with pytest.raises(ValueError):
+def test_malformed_status_code_raises_protocol_error():
+    """Non-numeric status code raises IcapProtocolError during parsing."""
+    with pytest.raises(IcapProtocolError):
         IcapResponse.parse(b"ICAP/1.0 ABC OK\r\n\r\n")
 
 
-def test_empty_response_raises_value_error():
-    """Test that empty response raises ValueError."""
-    with pytest.raises(ValueError):
+def test_empty_response_raises_protocol_error():
+    """Empty response raises IcapProtocolError."""
+    with pytest.raises(IcapProtocolError):
         IcapResponse.parse(b"")
 
 
-def test_incomplete_status_line_raises_value_error():
-    """Test that incomplete status line raises ValueError."""
-    with pytest.raises(ValueError):
+def test_incomplete_status_line_raises_protocol_error():
+    """Incomplete status line raises IcapProtocolError."""
+    with pytest.raises(IcapProtocolError):
         IcapResponse.parse(b"ICAP/1.0 200\r\n\r\n")
 
 

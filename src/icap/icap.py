@@ -667,10 +667,7 @@ class IcapClient(IcapProtocol):
             self._socket = None
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
-        try:
-            response = IcapResponse.parse(response_data)
-        except ValueError as e:
-            raise IcapProtocolError(f"Failed to parse ICAP response: {e}") from e
+        response = IcapResponse.parse(response_data)
 
         if 500 <= response.status_code < 600:
             raise IcapServerError(

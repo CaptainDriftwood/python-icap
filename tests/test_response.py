@@ -8,6 +8,7 @@ header handling per RFC 3507 and RFC 7230.
 import pytest
 
 from icap import CaseInsensitiveDict, IcapResponse
+from icap.exception import IcapProtocolError
 
 # =============================================================================
 # CaseInsensitiveDict tests
@@ -231,34 +232,42 @@ def test_parse_response_with_body():
 
 
 def test_parse_invalid_status_line():
-    """Invalid status line should raise ValueError."""
+    """Invalid status line should raise IcapProtocolError."""
     data = b"INVALID\r\n\r\n"
 
-    with pytest.raises(ValueError, match="Invalid ICAP status line"):
+    with pytest.raises(IcapProtocolError, match="Invalid ICAP status line"):
         IcapResponse.parse(data)
 
 
 def test_parse_status_code_too_low():
-    """Status code below 100 should raise ValueError."""
+    """Status code below 100 should raise IcapProtocolError."""
     data = b"ICAP/1.0 99 Invalid\r\n\r\n"
 
-    with pytest.raises(ValueError, match="Invalid ICAP status code"):
+    with pytest.raises(IcapProtocolError, match="Invalid ICAP status code"):
         IcapResponse.parse(data)
 
 
 def test_parse_status_code_too_high():
-    """Status code above 599 should raise ValueError."""
+    """Status code above 599 should raise IcapProtocolError."""
     data = b"ICAP/1.0 600 Invalid\r\n\r\n"
 
-    with pytest.raises(ValueError, match="Invalid ICAP status code"):
+    with pytest.raises(IcapProtocolError, match="Invalid ICAP status code"):
         IcapResponse.parse(data)
 
 
 def test_parse_status_code_negative():
-    """Negative status code should raise ValueError."""
+    """Negative status code should raise IcapProtocolError."""
     data = b"ICAP/1.0 -1 Invalid\r\n\r\n"
 
-    with pytest.raises(ValueError, match="Invalid ICAP status code"):
+    with pytest.raises(IcapProtocolError, match="Invalid ICAP status code"):
+        IcapResponse.parse(data)
+
+
+def test_parse_status_code_not_integer():
+    """Non-integer status code should raise IcapProtocolError, not ValueError."""
+    data = b"ICAP/1.0 abc Invalid\r\n\r\n"
+
+    with pytest.raises(IcapProtocolError, match="not an integer"):
         IcapResponse.parse(data)
 
 

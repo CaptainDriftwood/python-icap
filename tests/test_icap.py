@@ -49,8 +49,10 @@ def test_is_success():
 
 
 def test_invalid_response():
-    """Test parsing an invalid response raises ValueError."""
-    with pytest.raises(ValueError):
+    """Test parsing an invalid response raises IcapProtocolError."""
+    from icap.exception import IcapProtocolError
+
+    with pytest.raises(IcapProtocolError):
         IcapResponse.parse(b"Invalid response")
 
 

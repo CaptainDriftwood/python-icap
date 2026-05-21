@@ -31,7 +31,7 @@ def test_fuzz_response_parse_arbitrary_bytes(data: bytes):
 
     It should either:
     - Return a valid IcapResponse
-    - Raise ValueError for malformed input
+    - Raise IcapProtocolError for malformed input
     """
     try:
         response = IcapResponse.parse(data)
@@ -39,7 +39,7 @@ def test_fuzz_response_parse_arbitrary_bytes(data: bytes):
         assert isinstance(response.status_code, int)
         assert isinstance(response.status_message, str)
         assert isinstance(response.body, bytes)
-    except ValueError:
+    except IcapProtocolError:
         pass  # Expected for malformed input
 
 
@@ -62,10 +62,10 @@ def test_fuzz_response_parse_valid_status_line(status_code: int, status_message:
 @given(status_code=st.integers().filter(lambda x: x < 100 or x > 599))
 @settings(max_examples=100)
 def test_fuzz_response_parse_invalid_status_code(status_code: int):
-    """Status codes outside 100-599 should raise ValueError."""
+    """Status codes outside 100-599 should raise IcapProtocolError."""
     data = f"ICAP/1.0 {status_code} Test\r\n\r\n".encode()
 
-    with pytest.raises(ValueError, match="Invalid ICAP status code"):
+    with pytest.raises(IcapProtocolError, match="Invalid ICAP status code"):
         IcapResponse.parse(data)
 
 
