@@ -824,11 +824,13 @@ class AsyncIcapClient(IcapProtocol):
                                 self._reader.read(self.BUFFER_SIZE),
                                 timeout=self._timeout,
                             )
-                            if not chunk:
-                                break
-                            buffer += chunk
                         except asyncio.TimeoutError:
+                            raise IcapTimeoutError(
+                                f"Timeout reading chunked trailer from {self.host}:{self.port}"
+                            ) from None
+                        if not chunk:
                             break
+                        buffer += chunk
                     if b"\r\n" not in buffer:
                         break
                     line, buffer = buffer.split(b"\r\n", 1)
