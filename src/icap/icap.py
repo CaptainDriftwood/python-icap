@@ -1,6 +1,7 @@
 import logging
 import socket
 import ssl
+import threading
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, Iterator, Optional, Union
 
@@ -129,6 +130,10 @@ class IcapClient(IcapProtocol):
         self._ssl_context: Optional[ssl.SSLContext] = ssl_context
         self._max_response_size: int = max_response_size
         self._socket: Optional[Union[socket.socket, ssl.SSLSocket]] = None
+        # Guards connect/disconnect against accidental concurrent calls from
+        # multiple threads. Doc still warns "one client per thread" — this is
+        # belt and suspenders so we don't leak sockets.
+        self._connect_lock = threading.Lock()
         logger.debug(
             f"Initialized IcapClient for {address}:{port} (SSL: {ssl_context is not None})"
         )
@@ -163,10 +168,13 @@ class IcapClient(IcapProtocol):
                 SSL/TLS handshake errors.
             IcapTimeoutError: If connection times out.
         """
-        if self._socket is not None:
-            logger.debug("Already connected")
-            return
+        with self._connect_lock:
+            if self._socket is not None:
+                logger.debug("Already connected")
+                return
+            self._do_connect()
 
+    def _do_connect(self) -> None:
         logger.info(f"Connecting to {self.host}:{self.port}")
         sock = None
         try:
@@ -204,13 +212,14 @@ class IcapClient(IcapProtocol):
 
     def disconnect(self) -> None:
         """Disconnect from the ICAP server."""
-        if self._socket:
-            try:
-                self._socket.close()
-                logger.info(f"Disconnected from {self.host}:{self.port}")
-            except OSError as e:
-                logger.warning(f"Error while disconnecting: {e}")
-            self._socket = None
+        with self._connect_lock:
+            if self._socket:
+                try:
+                    self._socket.close()
+                    logger.info(f"Disconnected from {self.host}:{self.port}")
+                except OSError as e:
+                    logger.warning(f"Error while disconnecting: {e}")
+                self._socket = None
 
     def __enter__(self) -> "IcapClient":
         """Context manager entry."""
@@ -604,27 +613,34 @@ class IcapClient(IcapProtocol):
             raise IcapConnectionError("Not connected to ICAP server")
 
         try:
-            response_data = b""
+            response_buf = bytearray()
             header_end_marker = b"\r\n\r\n"
 
             # Read until we get the complete headers
-            while header_end_marker not in response_data:
+            while header_end_marker not in response_buf:
                 chunk = self._socket.recv(self.BUFFER_SIZE)
                 if not chunk:
                     break
-                response_data += chunk
+                response_buf.extend(chunk)
 
                 # Prevent DoS from endless header data
-                if len(response_data) > self.MAX_HEADER_SIZE:
+                if len(response_buf) > self.MAX_HEADER_SIZE:
                     raise IcapProtocolError(
                         f"Response header section exceeds maximum size "
                         f"({self.MAX_HEADER_SIZE:,} bytes)"
                     )
 
             # Parse headers to determine if there's a body and how to read it
-            if header_end_marker in response_data:
-                header_section, body_start = response_data.split(header_end_marker, 1)
-                headers_str = header_section.decode("utf-8", errors="ignore")
+            if header_end_marker in response_buf:
+                idx = response_buf.index(header_end_marker)
+                header_section = bytes(response_buf[:idx])
+                body_start = bytes(response_buf[idx + len(header_end_marker) :])
+                try:
+                    headers_str = header_section.decode("utf-8")
+                except UnicodeDecodeError as e:
+                    raise IcapProtocolError(
+                        f"ICAP response headers are not valid UTF-8: {e}"
+                    ) from None
 
                 headers = parse_response_headers(headers_str)
 
@@ -632,9 +648,8 @@ class IcapClient(IcapProtocol):
                     content_length = headers.content_length
                     validate_content_length(content_length, self._max_response_size)
                     logger.debug(f"Reading {content_length} bytes of body content")
-                    response_data = header_section + header_end_marker
+                    body_buf = bytearray(body_start)
                     bytes_read = len(body_start)
-                    response_data += body_start
 
                     while bytes_read < content_length:
                         chunk = self._socket.recv(
@@ -642,7 +657,7 @@ class IcapClient(IcapProtocol):
                         )
                         if not chunk:
                             break
-                        response_data += chunk
+                        body_buf.extend(chunk)
                         bytes_read += len(chunk)
 
                     # Validate we received all expected bytes
@@ -650,14 +665,19 @@ class IcapClient(IcapProtocol):
                         raise IcapProtocolError(
                             f"Incomplete response: expected {content_length} bytes, got {bytes_read}"
                         )
+                    response_data = header_section + header_end_marker + bytes(body_buf)
 
                 elif headers.is_chunked:
                     logger.debug("Reading chunked response body")
-                    response_data = header_section + header_end_marker
-                    response_data += self._read_chunked_body(body_start)
+                    response_data = (
+                        header_section + header_end_marker + self._read_chunked_body(body_start)
+                    )
 
                 else:
                     logger.debug("No Content-Length header, using headers only")
+                    response_data = bytes(response_buf)
+            else:
+                response_data = bytes(response_buf)
 
             logger.debug(f"Received {len(response_data)} bytes from ICAP server")
 
@@ -740,8 +760,8 @@ class IcapClient(IcapProtocol):
         if self._socket is None:
             raise IcapConnectionError("Not connected to ICAP server")
 
-        buffer = initial_data
-        body = b""
+        buffer = bytearray(initial_data)
+        body = bytearray()
 
         while True:
             # Ensure we have enough data to read the chunk size line
@@ -749,10 +769,12 @@ class IcapClient(IcapProtocol):
                 chunk = self._socket.recv(self.BUFFER_SIZE)
                 if not chunk:
                     raise IcapProtocolError("Connection closed before chunked body complete")
-                buffer += chunk
+                buffer.extend(chunk)
 
             # Parse and validate chunk size
-            size_line, buffer = buffer.split(b"\r\n", 1)
+            idx = buffer.index(b"\r\n")
+            size_line = bytes(buffer[:idx])
+            del buffer[: idx + 2]
             chunk_size = parse_chunk_size(size_line, self._max_response_size)
 
             if chunk_size == 0:
@@ -764,10 +786,12 @@ class IcapClient(IcapProtocol):
                         chunk = self._socket.recv(self.BUFFER_SIZE)
                         if not chunk:
                             break
-                        buffer += chunk
+                        buffer.extend(chunk)
                     if b"\r\n" not in buffer:
                         break
-                    line, buffer = buffer.split(b"\r\n", 1)
+                    idx = buffer.index(b"\r\n")
+                    line = bytes(buffer[:idx])
+                    del buffer[: idx + 2]
                     if not line:
                         # Empty line signals end of chunked body
                         break
@@ -778,17 +802,17 @@ class IcapClient(IcapProtocol):
                 chunk = self._socket.recv(self.BUFFER_SIZE)
                 if not chunk:
                     raise IcapProtocolError("Connection closed before chunked body complete")
-                buffer += chunk
+                buffer.extend(chunk)
 
             # Extract chunk data (excluding trailing CRLF)
-            body += buffer[:chunk_size]
+            body.extend(buffer[:chunk_size])
 
             # Validate total body size against maximum allowed
             validate_body_size(len(body), self._max_response_size)
 
-            buffer = buffer[chunk_size + 2 :]  # Skip chunk data and CRLF
+            del buffer[: chunk_size + 2]  # Skip chunk data and CRLF
 
-        return body
+        return bytes(body)
 
     def _send_with_preview(self, request: bytes, body: bytes, preview_size: int) -> IcapResponse:
         """Send an ICAP request with preview mode.

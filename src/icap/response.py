@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Dict, Iterator, MutableMapping, Optional
 
 from .exception import IcapProtocolError
@@ -53,6 +53,7 @@ class EncapsulatedParts:
             EncapsulatedParts(req_hdr=0, req_body=None, res_hdr=45, res_body=128, ...)
         """
         parts = cls()
+        valid_field_names = {f.name for f in fields(cls)}
         for segment in header_value.split(","):
             segment = segment.strip()
             if "=" in segment:
@@ -60,11 +61,16 @@ class EncapsulatedParts:
                 name = name.strip().replace("-", "_")
                 try:
                     offset = int(value.strip())
-                    # Only set valid non-negative offsets on known fields
-                    if offset >= 0 and hasattr(parts, name):
-                        setattr(parts, name, offset)
                 except ValueError:
-                    pass  # Skip invalid offset values
+                    raise IcapProtocolError(
+                        f"Invalid Encapsulated offset for {name!r}: {value.strip()!r}"
+                    ) from None
+                if offset < 0:
+                    raise IcapProtocolError(
+                        f"Invalid Encapsulated offset for {name!r}: {offset} (must be non-negative)"
+                    )
+                if name in valid_field_names:
+                    setattr(parts, name, offset)
         return parts
 
 
@@ -291,7 +297,10 @@ class IcapResponse:
             IcapResponse object
         """
         parts = data.split(b"\r\n\r\n", 1)
-        header_section = parts[0].decode("utf-8", errors="ignore")
+        try:
+            header_section = parts[0].decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise IcapProtocolError(f"ICAP response headers are not valid UTF-8: {e}") from None
         body = parts[1] if len(parts) > 1 else b""
 
         lines = header_section.split("\r\n")

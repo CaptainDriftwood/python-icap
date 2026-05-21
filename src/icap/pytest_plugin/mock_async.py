@@ -95,13 +95,14 @@ class MockAsyncIcapClient(MockIcapClient):
         callback = self._callbacks.get(method)
         if callback is not None:
             self._callback_used[method] = True
-            # Check if callback is async and await if needed
-            if inspect.iscoroutinefunction(callback):
-                async_callback = cast(AsyncResponseCallback, callback)
-                result = await async_callback(**call_kwargs)
-            else:
-                sync_callback = cast(ResponseCallback, callback)
-                result = sync_callback(**call_kwargs)
+            # Invoke first, then await the result if it's awaitable. Covers
+            # plain async functions, async __call__ on callable classes,
+            # and any other callable returning an awaitable.
+            sync_callback = cast(ResponseCallback, callback)
+            raw: Any = sync_callback(**call_kwargs)
+            if inspect.isawaitable(raw):
+                raw = await raw
+            result = cast("IcapResponse | Exception", raw)
             return result, "callback"
 
         queue = self._response_queues[method]

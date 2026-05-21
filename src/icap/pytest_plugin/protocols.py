@@ -17,16 +17,15 @@ class ResponseCallback(Protocol):
     """
     Protocol for synchronous response callbacks.
 
-    Callbacks receive the request context and return an IcapResponse.
-    Use this for dynamic response generation based on content, filename,
-    or service name.
-
-    The callback signature is flexible:
-        - Required: `data` (bytes) - the content being scanned
-        - Optional keyword arguments: `service`, `filename`, and others
+    Accepts arbitrary keyword arguments so the same protocol can describe
+    callbacks for scan methods (which receive ``data``, ``service``,
+    ``filename``) and OPTIONS callbacks (which receive only ``service``).
+    Callbacks should accept ``**kwargs`` to remain forward-compatible with
+    new fields added by future method signatures.
 
     Example signatures (all valid):
         >>> def simple_callback(data: bytes, **kwargs) -> IcapResponse: ...
+        >>> def options_callback(*, service: str, **kwargs) -> IcapResponse: ...
         >>> def detailed_callback(
         ...     data: bytes,
         ...     *,
@@ -49,14 +48,7 @@ class ResponseCallback(Protocol):
         MockIcapClient.on_respmod: Configure callbacks for scan methods.
     """
 
-    def __call__(
-        self,
-        data: bytes,
-        *,
-        service: str,
-        filename: str | None = None,
-        **kwargs: Any,
-    ) -> IcapResponse: ...
+    def __call__(self, **kwargs: Any) -> IcapResponse: ...
 
 
 class AsyncResponseCallback(Protocol):
@@ -64,7 +56,9 @@ class AsyncResponseCallback(Protocol):
     Protocol for asynchronous response callbacks.
 
     Async version of ResponseCallback for use with MockAsyncIcapClient.
-    Callbacks receive the request context and return an IcapResponse.
+    Callbacks should accept ``**kwargs`` since the keyword arguments differ
+    between scan methods (``data``, ``service``, ``filename``) and OPTIONS
+    callbacks (``service`` only).
 
     Note: MockAsyncIcapClient also accepts synchronous callbacks for
     convenience - they will be called directly without awaiting.
@@ -84,14 +78,7 @@ class AsyncResponseCallback(Protocol):
         MockAsyncIcapClient.on_respmod: Configure callbacks for scan methods.
     """
 
-    async def __call__(
-        self,
-        data: bytes,
-        *,
-        service: str,
-        filename: str | None = None,
-        **kwargs: Any,
-    ) -> IcapResponse: ...
+    async def __call__(self, **kwargs: Any) -> IcapResponse: ...
 
 
 __all__ = ["ResponseCallback", "AsyncResponseCallback"]

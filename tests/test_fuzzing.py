@@ -235,22 +235,25 @@ def test_fuzz_encapsulated_multiple_fields(req_hdr: int, res_hdr: int, res_body:
 @given(offset=st.integers(max_value=-1))
 @settings(max_examples=100)
 def test_fuzz_encapsulated_negative_offset(offset: int):
-    """Negative offsets should be silently ignored (treated as invalid)."""
+    """Negative offsets should raise IcapProtocolError so callers see the malformed input."""
     header_value = f"res-body={offset}"
 
-    result = EncapsulatedParts.parse(header_value)
-    # Negative offsets are ignored, field remains None
-    assert result.res_body is None
+    with pytest.raises(IcapProtocolError, match="must be non-negative"):
+        EncapsulatedParts.parse(header_value)
 
 
 @given(header_value=st.text(max_size=200))
 @settings(max_examples=300)
 def test_fuzz_encapsulated_arbitrary_text(header_value: str):
-    """EncapsulatedParts.parse should handle arbitrary text without crashing.
+    """EncapsulatedParts.parse should never crash on arbitrary text.
 
-    It should either parse valid fields or silently ignore invalid segments.
+    It should either parse valid fields or raise IcapProtocolError for malformed
+    offset values; unknown field names are accepted-but-ignored.
     """
-    result = EncapsulatedParts.parse(header_value)
+    try:
+        result = EncapsulatedParts.parse(header_value)
+    except IcapProtocolError:
+        return  # malformed offset reported clearly
 
     # Result should always be a valid EncapsulatedParts instance
     assert isinstance(result, EncapsulatedParts)

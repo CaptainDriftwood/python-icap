@@ -233,6 +233,10 @@ class IcapResponseBuilder:
         self._headers["Preview"] = str(preview)
         self._headers["Transfer-Preview"] = "*"
         self._headers["Max-Connections"] = "100"
+        # Real ICAP servers emit Encapsulated on OPTIONS responses per RFC 3507.
+        # Default to null-body=0 so consumer code that inspects
+        # response.encapsulated behaves the same against the mock and a real server.
+        self._headers.setdefault("Encapsulated", "null-body=0")
         return self
 
     def error(

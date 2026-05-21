@@ -704,11 +704,11 @@ class AsyncIcapClient(IcapProtocol):
         if self._reader is None:
             raise IcapConnectionError("Not connected to ICAP server")
 
-        response_data = b""
+        response_buf = bytearray()
         header_end_marker = b"\r\n\r\n"
 
         # Read until we get the complete headers
-        while header_end_marker not in response_data:
+        while header_end_marker not in response_buf:
             try:
                 chunk = await asyncio.wait_for(
                     self._reader.read(self.BUFFER_SIZE),
@@ -716,10 +716,10 @@ class AsyncIcapClient(IcapProtocol):
                 )
                 if not chunk:
                     break
-                response_data += chunk
+                response_buf.extend(chunk)
 
                 # Prevent DoS from endless header data
-                if len(response_data) > self.MAX_HEADER_SIZE:
+                if len(response_buf) > self.MAX_HEADER_SIZE:
                     raise IcapProtocolError(
                         f"Response header section exceeds maximum size "
                         f"({self.MAX_HEADER_SIZE:,} bytes)"
@@ -730,9 +730,14 @@ class AsyncIcapClient(IcapProtocol):
                 ) from None
 
         # Parse headers to determine if there's a body
-        if header_end_marker in response_data:
-            header_section, body_start = response_data.split(header_end_marker, 1)
-            headers_str = header_section.decode("utf-8", errors="ignore")
+        if header_end_marker in response_buf:
+            idx = response_buf.index(header_end_marker)
+            header_section = bytes(response_buf[:idx])
+            body_start = bytes(response_buf[idx + len(header_end_marker) :])
+            try:
+                headers_str = header_section.decode("utf-8")
+            except UnicodeDecodeError as e:
+                raise IcapProtocolError(f"ICAP response headers are not valid UTF-8: {e}") from None
 
             # Parse headers to determine body handling
             headers = parse_response_headers(headers_str)
@@ -744,9 +749,8 @@ class AsyncIcapClient(IcapProtocol):
 
                 # Read exactly Content-Length bytes
                 logger.debug(f"Reading {content_length} bytes of body content")
-                response_data = header_section + header_end_marker
+                body_buf = bytearray(body_start)
                 bytes_read = len(body_start)
-                response_data += body_start
 
                 while bytes_read < content_length:
                     try:
@@ -756,7 +760,7 @@ class AsyncIcapClient(IcapProtocol):
                         )
                         if not chunk:
                             break
-                        response_data += chunk
+                        body_buf.extend(chunk)
                         bytes_read += len(chunk)
                     except asyncio.TimeoutError:
                         raise IcapTimeoutError(
@@ -768,13 +772,19 @@ class AsyncIcapClient(IcapProtocol):
                     raise IcapProtocolError(
                         f"Incomplete response: expected {content_length} bytes, got {bytes_read}"
                     )
+                response_data = header_section + header_end_marker + bytes(body_buf)
 
             elif headers.is_chunked:
                 # Read chunked transfer encoding
                 logger.debug("Reading chunked response body")
-                response_data = header_section + header_end_marker
-                chunked_body = await self._read_chunked_body(body_start)
-                response_data += chunked_body
+                response_data = (
+                    header_section + header_end_marker + await self._read_chunked_body(body_start)
+                )
+
+            else:
+                response_data = bytes(response_buf)
+        else:
+            response_data = bytes(response_buf)
 
         return IcapResponse.parse(response_data)
 
@@ -790,8 +800,8 @@ class AsyncIcapClient(IcapProtocol):
         if self._reader is None:
             raise IcapConnectionError("Not connected to ICAP server")
 
-        buffer = initial_data
-        body = b""
+        buffer = bytearray(initial_data)
+        body = bytearray()
 
         while True:
             # Ensure we have enough data to read the chunk size line
@@ -803,14 +813,16 @@ class AsyncIcapClient(IcapProtocol):
                     )
                     if not chunk:
                         raise IcapProtocolError("Connection closed before chunked body complete")
-                    buffer += chunk
+                    buffer.extend(chunk)
                 except asyncio.TimeoutError:
                     raise IcapTimeoutError(
                         f"Timeout reading chunked body from {self.host}:{self.port}"
                     ) from None
 
             # Parse and validate chunk size
-            size_line, buffer = buffer.split(b"\r\n", 1)
+            idx = buffer.index(b"\r\n")
+            size_line = bytes(buffer[:idx])
+            del buffer[: idx + 2]
             chunk_size = parse_chunk_size(size_line, self._max_response_size)
 
             if chunk_size == 0:
@@ -830,10 +842,12 @@ class AsyncIcapClient(IcapProtocol):
                             ) from None
                         if not chunk:
                             break
-                        buffer += chunk
+                        buffer.extend(chunk)
                     if b"\r\n" not in buffer:
                         break
-                    line, buffer = buffer.split(b"\r\n", 1)
+                    idx = buffer.index(b"\r\n")
+                    line = bytes(buffer[:idx])
+                    del buffer[: idx + 2]
                     if not line:
                         # Empty line signals end of chunked body
                         break
@@ -848,20 +862,20 @@ class AsyncIcapClient(IcapProtocol):
                     )
                     if not chunk:
                         raise IcapProtocolError("Connection closed before chunked body complete")
-                    buffer += chunk
+                    buffer.extend(chunk)
                 except asyncio.TimeoutError:
                     raise IcapTimeoutError(
                         f"Timeout reading chunked body from {self.host}:{self.port}"
                     ) from None
 
-            body += buffer[:chunk_size]
+            body.extend(buffer[:chunk_size])
 
             # Validate total body size against maximum allowed
             validate_body_size(len(body), self._max_response_size)
 
-            buffer = buffer[chunk_size + 2 :]
+            del buffer[: chunk_size + 2]
 
-        return body
+        return bytes(body)
 
     async def _send_with_preview(
         self, request: bytes, body: bytes, preview_size: int

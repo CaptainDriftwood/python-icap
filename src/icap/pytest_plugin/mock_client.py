@@ -887,7 +887,7 @@ class MockIcapClient:
             if call.method in ("scan_bytes", "respmod"):
                 if call.kwargs.get("data") == data:
                     return
-                if call.kwargs.get("http_response", b"").endswith(data):
+                if data in call.kwargs.get("http_response", b""):
                     return
         raise AssertionError(f"Content {data!r} was not scanned")
 

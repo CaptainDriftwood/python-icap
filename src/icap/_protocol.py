@@ -244,6 +244,11 @@ def parse_response_headers(headers_str: str) -> ResponseHeaders:
             elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
                 is_chunked = True
 
+    # Per RFC 7230 §3.3.3: if Transfer-Encoding is present, Content-Length
+    # must be ignored. Defends against request-smuggling-style ambiguity.
+    if is_chunked:
+        content_length = None
+
     return ResponseHeaders(content_length=content_length, is_chunked=is_chunked)
 
 
