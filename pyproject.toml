@@ -43,7 +43,7 @@ Homepage = "https://github.com/CaptainDriftwood/python-icap"
 Repository = "https://github.com/CaptainDriftwood/python-icap"
 
 [project.entry-points.pytest11]
-icap = "icap.pytest_plugin.plugin"
+icap = "icap.pytest_plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/icap"]
@@ -127,7 +127,6 @@ omit = [
     # Import-time only files - executed before coverage starts
     "*/icap/__init__.py",
     "*/icap/exception.py",
-    "*/icap/pytest_plugin/plugin.py",
     # Base protocol class - only tested via subclasses in integration tests
     "*/icap/_protocol.py",
 ]
