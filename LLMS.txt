@@ -60,7 +60,7 @@ Import from `icap`:
 
 ### High-Level Methods (Recommended)
 
-- `scan_file(filepath, service='avscan')` - Scan file by path
+- `scan_file(filepath, service='avscan', chunk_size=0)` - Scan file by path (chunk_size>0 streams large files)
 - `scan_bytes(data, service='avscan', filename=None)` - Scan bytes directly
 - `scan_stream(stream, service='avscan', filename=None, chunk_size=0)` - Scan file-like objects
 
@@ -152,20 +152,20 @@ def test_virus(icap_mock):
 ### Advanced Mock Features
 
 ```python
-from icap.pytest_plugin import MockIcapClient, IcapResponseBuilder, MatcherBuilder
+from icap.pytest_plugin import MockIcapClient, IcapResponseBuilder
 
-# Conditional responses based on content
+# Conditional responses based on scanned content
 client = MockIcapClient()
-client.when(
-    MatcherBuilder().body_contains(b"EICAR").build()
-).respond(IcapResponseBuilder().virus("EICAR-Test").build())
-client.default_response(IcapResponseBuilder().clean().build())
+client.when(data_contains=b"EICAR").respond(
+    IcapResponseBuilder().virus("EICAR-Test").build()
+)
+client.on_any(IcapResponseBuilder().clean().build())  # fallback for everything else
 
 # Call inspection
 response = client.scan_bytes(b"test")
 call = client.last_call
 assert call.method == "scan_bytes"
-assert call.args[0] == b"test"
+assert call.data == b"test"  # or call.kwargs["data"]
 
 # Strict mode (fails if no matching response)
 @pytest.mark.icap_mock(strict=True)
@@ -185,7 +185,7 @@ src/icap/
 ├── exception.py         # Custom exceptions
 ├── _protocol.py         # Shared protocol utilities
 └── pytest_plugin/       # Bundled pytest plugin
-    ├── plugin.py        # Fixtures and markers
+    ├── __init__.py      # Plugin entry point: fixtures and markers
     ├── builder.py       # IcapResponseBuilder
     ├── mock_client.py   # MockIcapClient (sync)
     ├── mock_async.py    # MockAsyncIcapClient
