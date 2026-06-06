@@ -49,6 +49,9 @@ class EncapsulatedParts:
         Returns:
             EncapsulatedParts with parsed offsets.
 
+        Raises:
+            IcapProtocolError: If an offset is not an integer or is negative.
+
         Example:
             >>> EncapsulatedParts.parse("req-hdr=0, res-hdr=45, res-body=128")
             EncapsulatedParts(req_hdr=0, req_body=None, res_hdr=45, res_body=128, ...)
@@ -242,6 +245,10 @@ class IcapResponse:
         Returns:
             EncapsulatedParts with parsed offsets, or None if no Encapsulated header.
 
+        Raises:
+            IcapProtocolError: On first access, if the Encapsulated header value is
+                malformed. The result is cached, so this is raised at most once.
+
         Example:
             >>> response = client.respmod("avscan", http_request, http_response)
             >>> if response.encapsulated and response.encapsulated.res_body is not None:
@@ -304,6 +311,10 @@ class IcapResponse:
 
         Returns:
             IcapResponse object
+
+        Raises:
+            IcapProtocolError: If the headers are not valid UTF-8, the status line
+                is malformed, or the status code is not an integer in 100-599.
         """
         parts = data.split(b"\r\n\r\n", 1)
         try:

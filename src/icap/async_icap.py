@@ -118,6 +118,9 @@ class AsyncIcapClient(IcapProtocol):
                 in chunked transfer encoding. Increase this if you need to scan
                 files larger than 100MB. Must be a positive integer.
 
+        Raises:
+            ValueError: If max_response_size is not a positive integer.
+
         Example:
             >>> # Standard TLS with system CA certificates
             >>> ssl_ctx = ssl.create_default_context()
@@ -265,6 +268,13 @@ class AsyncIcapClient(IcapProtocol):
                 - Options-TTL: How long (seconds) to cache this OPTIONS response
                 - Service-ID: Unique identifier for this service instance
 
+        Raises:
+            ValueError: If the service name is empty or contains invalid characters.
+            IcapConnectionError: If not connected or connection is lost.
+            IcapTimeoutError: If the operation times out.
+            IcapProtocolError: If the response cannot be parsed.
+            IcapServerError: If the server returns a 5xx error.
+
         Example:
             >>> async with AsyncIcapClient('localhost') as client:
             ...     response = await client.options("avscan")
@@ -314,6 +324,13 @@ class AsyncIcapClient(IcapProtocol):
 
         Returns:
             IcapResponse object
+
+        Raises:
+            ValueError: If the service name is invalid or preview is not positive.
+            IcapConnectionError: If not connected or connection is lost.
+            IcapTimeoutError: If the operation times out.
+            IcapProtocolError: If the response cannot be parsed.
+            IcapServerError: If the server returns a 5xx error.
         """
         self._validate_service_name(service)
         if self._writer is None:
@@ -398,6 +415,13 @@ class AsyncIcapClient(IcapProtocol):
 
         Returns:
             IcapResponse object
+
+        Raises:
+            ValueError: If the service name is empty or contains invalid characters.
+            IcapConnectionError: If not connected or connection is lost.
+            IcapTimeoutError: If the operation times out.
+            IcapProtocolError: If the response cannot be parsed.
+            IcapServerError: If the server returns a 5xx error.
         """
         self._validate_service_name(service)
         if self._writer is None:
@@ -453,6 +477,15 @@ class AsyncIcapClient(IcapProtocol):
         Returns:
             IcapResponse object
 
+        Raises:
+            FileNotFoundError: If filepath does not exist.
+            ValueError: If the service name is invalid.
+            IcapConnectionError: If not connected or connection is lost.
+            IcapTimeoutError: If the operation times out.
+            IcapProtocolError: If the stream cannot be read or the response
+                cannot be parsed.
+            IcapServerError: If the server returns a 5xx error.
+
         Example:
             >>> async with AsyncIcapClient('localhost') as client:
             ...     response = await client.scan_file('/path/to/file.pdf')
@@ -502,6 +535,14 @@ class AsyncIcapClient(IcapProtocol):
         Returns:
             IcapResponse object
 
+        Raises:
+            ValueError: If the service name is invalid.
+            IcapConnectionError: If not connected or connection is lost.
+            IcapTimeoutError: If the operation times out.
+            IcapProtocolError: If the stream cannot be read or the response
+                cannot be parsed.
+            IcapServerError: If the server returns a 5xx error.
+
         Example:
             >>> async with AsyncIcapClient('localhost') as client:
             ...     # Stream entire file into memory
@@ -541,6 +582,13 @@ class AsyncIcapClient(IcapProtocol):
 
         Returns:
             IcapResponse object
+
+        Raises:
+            ValueError: If the service name is invalid.
+            IcapConnectionError: If not connected or connection is lost.
+            IcapTimeoutError: If the operation times out.
+            IcapProtocolError: If the response cannot be parsed.
+            IcapServerError: If the server returns a 5xx error.
 
         Example:
             >>> async with AsyncIcapClient('localhost') as client:
