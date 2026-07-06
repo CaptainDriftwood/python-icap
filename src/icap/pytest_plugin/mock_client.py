@@ -874,10 +874,13 @@ class MockIcapClient:
         Assert that specific content was scanned.
 
         Checks if the given bytes were passed to scan_bytes() or respmod().
-        For respmod(), checks if the http_response ends with the given data.
+        For scan_bytes(), the data must equal the scanned payload exactly.
+        For respmod(), the data must appear within the http_response
+        (substring match, since the payload is embedded in an encapsulated
+        HTTP message).
 
         Args:
-            data: The exact bytes that should have been scanned.
+            data: Bytes expected to have been scanned.
 
         Raises:
             AssertionError: If the data was not found in any scan call.
