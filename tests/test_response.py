@@ -299,3 +299,18 @@ def test_istag_property_case_insensitive():
     response = IcapResponse.parse(data)
 
     assert response.istag == "v1.0"
+
+
+def test_parse_header_with_non_utf8_bytes_tolerated():
+    """Non-UTF-8 bytes in headers must not make the scan verdict unreadable.
+
+    Regression test: some AV engines emit Latin-1 bytes in header values
+    (e.g. virus names, vendor ISTags). These are replaced with U+FFFD rather
+    than failing the whole response.
+    """
+    data = b"ICAP/1.0 200 OK\r\nX-Virus-ID: Trojan.G\xe9n\xe9rique\r\n\r\n"
+    response = IcapResponse.parse(data)
+
+    assert response.status_code == 200
+    assert response.headers["X-Virus-ID"].startswith("Trojan.G")
+    assert "�" in response.headers["X-Virus-ID"]

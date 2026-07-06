@@ -1436,3 +1436,18 @@ async def test_async_slow_but_steady_transfer_is_not_cancelled(mocker):
 
     assert response.status_code == 200
     assert response.body == b"12345" * 6
+
+
+def test_sync_receive_response_with_non_utf8_headers():
+    """The sync client's framing decode tolerates non-UTF-8 header bytes."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.side_effect = [
+        b"ICAP/1.0 204 No Content\r\nX-Virus-ID: G\xe9n\xe9rique\r\nISTag: \xff123\r\n\r\n",
+        b"",
+    ]
+    client._socket = mock_socket
+
+    response = client._receive_response()
+    assert response.status_code == 204

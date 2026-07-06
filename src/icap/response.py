@@ -313,14 +313,13 @@ class IcapResponse:
             IcapResponse object
 
         Raises:
-            IcapProtocolError: If the headers are not valid UTF-8, the status line
-                is malformed, or the status code is not an integer in 100-599.
+            IcapProtocolError: If the status line is malformed or the status
+                code is not an integer in 100-599.
         """
         parts = data.split(b"\r\n\r\n", 1)
-        try:
-            header_section = parts[0].decode("utf-8")
-        except UnicodeDecodeError as e:
-            raise IcapProtocolError(f"ICAP response headers are not valid UTF-8: {e}") from None
+        # Non-UTF-8 bytes (e.g. Latin-1 in vendor virus names or ISTags) must
+        # not make the whole scan verdict unreadable; replace them instead.
+        header_section = parts[0].decode("utf-8", errors="replace")
         body = parts[1] if len(parts) > 1 else b""
 
         lines = header_section.split("\r\n")

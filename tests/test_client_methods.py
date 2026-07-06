@@ -1502,7 +1502,7 @@ async def test_header_section_size_limit_async():
     client = AsyncIcapClient("localhost", 1344)
 
     mock_reader = AsyncMock()
-    # Return data that looks like headers but never ends
+    # Return data that never ends (no \r\n\r\n)
     mock_reader.read.return_value = b"X-Header: " + b"A" * 8000 + b"\r\n"
 
     client._reader = mock_reader
@@ -1510,6 +1510,52 @@ async def test_header_section_size_limit_async():
 
     with pytest.raises(IcapProtocolError, match="header section exceeds maximum size"):
         await client._receive_response()
+
+
+def _large_headers_with_body() -> bytes:
+    """Response whose header section is within MAX_HEADER_SIZE but whose
+    headers + body together exceed it in a single read."""
+    body = b"B" * 4096
+    return (
+        b"ICAP/1.0 200 OK\r\n"
+        + b"X-Big: "
+        + b"A" * (IcapClient.MAX_HEADER_SIZE - 2048)
+        + b"\r\n"
+        + b"Content-Length: %d\r\n\r\n" % len(body)
+        + body
+    )
+
+
+def test_large_headers_with_body_in_same_read_accepted_sync():
+    """Body bytes arriving with the header terminator must not count against
+    the header limit.
+
+    Regression test: the size check used to run before re-testing for the
+    terminator, falsely rejecting legal responses.
+    """
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.side_effect = [_large_headers_with_body(), b""]
+    client._socket = mock_socket
+
+    response = client._receive_response()
+    assert response.status_code == 200
+    assert response.body == b"B" * 4096
+
+
+async def test_large_headers_with_body_in_same_read_accepted_async():
+    """Async parity: body bytes past the terminator don't trip the header limit."""
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_reader = AsyncMock()
+    mock_reader.read.side_effect = [_large_headers_with_body(), b""]
+    client._reader = mock_reader
+    client._writer = MagicMock()
+
+    response = await client._receive_response()
+    assert response.status_code == 200
+    assert response.body == b"B" * 4096
 
 
 # =============================================================================

@@ -682,8 +682,13 @@ class IcapClient(IcapProtocol):
                     break
                 response_buf.extend(chunk)
 
-                # Prevent DoS from endless header data
-                if len(response_buf) > self.MAX_HEADER_SIZE:
+                # Prevent DoS from endless header data. Only count bytes while
+                # the terminator is absent: once it has arrived, anything past
+                # it is body data and must not be held against the header limit.
+                if (
+                    header_end_marker not in response_buf
+                    and len(response_buf) > self.MAX_HEADER_SIZE
+                ):
                     raise IcapProtocolError(
                         f"Response header section exceeds maximum size "
                         f"({self.MAX_HEADER_SIZE:,} bytes)"
@@ -694,12 +699,9 @@ class IcapClient(IcapProtocol):
                 idx = response_buf.index(header_end_marker)
                 header_section = bytes(response_buf[:idx])
                 body_start = bytes(response_buf[idx + len(header_end_marker) :])
-                try:
-                    headers_str = header_section.decode("utf-8")
-                except UnicodeDecodeError as e:
-                    raise IcapProtocolError(
-                        f"ICAP response headers are not valid UTF-8: {e}"
-                    ) from None
+                # Tolerate non-UTF-8 bytes (e.g. Latin-1 vendor headers);
+                # replacing them keeps the scan verdict readable.
+                headers_str = header_section.decode("utf-8", errors="replace")
 
                 headers = parse_response_headers(headers_str)
 
