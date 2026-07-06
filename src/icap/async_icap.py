@@ -678,10 +678,10 @@ class AsyncIcapClient(IcapProtocol):
             await self._writer.drain()
             logger.debug(f"Sent {total_bytes} bytes in chunked encoding")
 
-            # Receive response with aggregate timeout
-            response = await asyncio.wait_for(self._receive_response(), timeout=self._timeout)
+            response = await self._receive_response()
 
         except asyncio.TimeoutError:
+            self._drop_transport()
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from None
         except asyncio.CancelledError:
             self._drop_transport()
@@ -729,13 +729,12 @@ class AsyncIcapClient(IcapProtocol):
             self._writer.write(request)
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
-            # Aggregate timeout: a drip-feeding server can't satisfy each
-            # per-read wait_for while exceeding self._timeout overall.
-            response = await asyncio.wait_for(self._receive_response(), timeout=self._timeout)
+            response = await self._receive_response()
 
             logger.debug(f"Received response: {response.status_code} {response.status_message}")
 
         except asyncio.TimeoutError as e:
+            self._drop_transport()
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except asyncio.CancelledError:
             self._drop_transport()
@@ -778,6 +777,7 @@ class AsyncIcapClient(IcapProtocol):
                         f"({self.MAX_HEADER_SIZE:,} bytes)"
                     )
             except asyncio.TimeoutError:
+                self._drop_transport()
                 raise IcapTimeoutError(
                     f"Timeout reading response from {self.host}:{self.port}"
                 ) from None
@@ -816,6 +816,7 @@ class AsyncIcapClient(IcapProtocol):
                         body_buf.extend(chunk)
                         bytes_read += len(chunk)
                     except asyncio.TimeoutError:
+                        self._drop_transport()
                         raise IcapTimeoutError(
                             f"Timeout reading response body from {self.host}:{self.port}"
                         ) from None
@@ -868,6 +869,7 @@ class AsyncIcapClient(IcapProtocol):
                         raise IcapProtocolError("Connection closed before chunked body complete")
                     buffer.extend(chunk)
                 except asyncio.TimeoutError:
+                    self._drop_transport()
                     raise IcapTimeoutError(
                         f"Timeout reading chunked body from {self.host}:{self.port}"
                     ) from None
@@ -881,15 +883,24 @@ class AsyncIcapClient(IcapProtocol):
             if chunk_size == 0:
                 # Final chunk - consume trailing CRLF (and any trailer headers)
                 # Per RFC 7230, after the 0-size chunk there may be trailer headers
-                # followed by a final CRLF. We need to read until we see the empty line.
+                # followed by a final CRLF. We need to read until we see the empty
+                # line. Total trailer bytes are capped at MAX_HEADER_SIZE so a
+                # server streaming endless trailers cannot hang the client.
+                trailer_bytes = 0
                 while True:
                     while b"\r\n" not in buffer:
+                        if trailer_bytes + len(buffer) > self.MAX_HEADER_SIZE:
+                            raise IcapProtocolError(
+                                f"Chunked trailer section exceeds maximum size "
+                                f"({self.MAX_HEADER_SIZE:,} bytes)"
+                            )
                         try:
                             chunk = await asyncio.wait_for(
                                 self._reader.read(self.BUFFER_SIZE),
                                 timeout=self._timeout,
                             )
                         except asyncio.TimeoutError:
+                            self._drop_transport()
                             raise IcapTimeoutError(
                                 f"Timeout reading chunked trailer from {self.host}:{self.port}"
                             ) from None
@@ -901,6 +912,12 @@ class AsyncIcapClient(IcapProtocol):
                     idx = buffer.index(b"\r\n")
                     line = bytes(buffer[:idx])
                     del buffer[: idx + 2]
+                    trailer_bytes += idx + 2
+                    if trailer_bytes > self.MAX_HEADER_SIZE:
+                        raise IcapProtocolError(
+                            f"Chunked trailer section exceeds maximum size "
+                            f"({self.MAX_HEADER_SIZE:,} bytes)"
+                        )
                     if not line:
                         # Empty line signals end of chunked body
                         break
@@ -917,6 +934,7 @@ class AsyncIcapClient(IcapProtocol):
                         raise IcapProtocolError("Connection closed before chunked body complete")
                     buffer.extend(chunk)
                 except asyncio.TimeoutError:
+                    self._drop_transport()
                     raise IcapTimeoutError(
                         f"Timeout reading chunked body from {self.host}:{self.port}"
                     ) from None
@@ -967,7 +985,7 @@ class AsyncIcapClient(IcapProtocol):
             await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
             # Receive initial response (could be 100 Continue, 204, or 200)
-            response = await asyncio.wait_for(self._receive_response(), timeout=self._timeout)
+            response = await self._receive_response()
 
             # If server responds with 100 Continue, send the rest of the body
             if response.status_code == 100:
@@ -982,7 +1000,7 @@ class AsyncIcapClient(IcapProtocol):
                 await asyncio.wait_for(self._writer.drain(), timeout=self._timeout)
 
                 # Receive final response
-                response = await asyncio.wait_for(self._receive_response(), timeout=self._timeout)
+                response = await self._receive_response()
 
             # Check for server errors
             if 500 <= response.status_code < 600:
@@ -994,6 +1012,7 @@ class AsyncIcapClient(IcapProtocol):
             return response
 
         except asyncio.TimeoutError as e:
+            self._drop_transport()
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except asyncio.CancelledError:
             self._drop_transport()

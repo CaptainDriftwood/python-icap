@@ -21,10 +21,13 @@ _INVALID_HEADER_NAME_CHARS = re.compile(r"[\x00-\x1f\x7f()<>@,;:\\\"/\[\]?={} \t
 # CRLF injection is the main concern - values must not contain CR or LF
 _INVALID_HEADER_VALUE_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
 
-# Conservative character class for ICAP service names. Service names appear
-# verbatim in the request line ("OPTIONS icap://host:port/<service> ICAP/1.0"),
-# so anything outside a safe URI-path subset risks request-line injection.
-_VALID_SERVICE_NAME = re.compile(r"^[A-Za-z0-9._\-/]+$")
+# Character class for ICAP service names. Service names appear verbatim in the
+# request line ("OPTIONS icap://host:port/<service> ICAP/1.0"), so CR, LF,
+# spaces, and control characters would corrupt request framing and are
+# rejected. Everything in the RFC 3986 path/query character set is allowed,
+# because RFC 3507 ICAP URIs may carry query components that real servers
+# depend on (e.g. "avscan?allow204=on", "srv_clamav?force=on").
+_VALID_SERVICE_NAME = re.compile(r"^[A-Za-z0-9\-._~%!$&'()*+,;=:@/?]+$")
 
 # Chunked transfer encoding terminators (RFC 7230).
 CHUNK_TERMINATOR = b"0\r\n\r\n"
@@ -112,7 +115,8 @@ class IcapProtocol:
 
         The request line ("OPTIONS icap://host:port/<service> ICAP/1.0") is not
         escape-aware; a CR/LF or space in the service name would corrupt
-        framing. Reject anything outside a conservative URI-path subset.
+        framing. Reject anything outside the RFC 3986 path/query character set
+        (query components like "avscan?allow204=on" are valid per RFC 3507).
 
         Raises:
             ValueError: If the service name is empty or contains invalid characters.
@@ -121,8 +125,8 @@ class IcapProtocol:
             raise ValueError("Service name cannot be empty")
         if not _VALID_SERVICE_NAME.match(service):
             raise ValueError(
-                f"Invalid service name {service!r}: only letters, digits, "
-                "'.', '_', '-', '/' are allowed"
+                f"Invalid service name {service!r}: must contain only URI "
+                "path/query characters (no spaces, control characters, or CR/LF)"
             )
 
     def _build_http_response_header(self, content_length: int) -> bytes:

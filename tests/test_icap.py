@@ -280,6 +280,23 @@ def test_protocol_validate_service_name_accepts_typical_names():
         IcapProtocol._validate_service_name(name)
 
 
+def test_protocol_validate_service_name_accepts_query_components():
+    """RFC 3507 ICAP URIs may carry query components (c-icap, SquidClamav style)."""
+    from icap._protocol import IcapProtocol
+
+    for name in ("avscan?allow204=on", "srv_clamav?force=on", "scan?mode=full&level=2"):
+        IcapProtocol._validate_service_name(name)
+
+
+def test_protocol_validate_service_name_rejects_space_and_control_chars():
+    """Spaces and control characters would corrupt request-line framing."""
+    from icap._protocol import IcapProtocol
+
+    for name in ("av scan", "avscan\x00", "avscan\tv1"):
+        with pytest.raises(ValueError, match="Invalid service name"):
+            IcapProtocol._validate_service_name(name)
+
+
 def test_protocol_build_http_response_header():
     """Test _build_http_response_header method."""
     from icap._protocol import IcapProtocol

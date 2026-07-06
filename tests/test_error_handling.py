@@ -1273,3 +1273,166 @@ async def test_async_receive_response_oserror_during_read(mocker):
     assert "Connection reset" in str(exc_info.value)
     # Verify client is marked as disconnected
     assert not client.is_connected
+
+
+def test_sync_timeout_during_receive_drops_socket():
+    """Timeout mid-response must close and drop the socket.
+
+    Regression test: the connection cannot be reused after a timeout because
+    unread bytes of the aborted response would be parsed as the reply to the
+    next request (stale scan verdicts).
+    """
+    import socket
+
+    from icap.exception import IcapTimeoutError
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.side_effect = socket.timeout("Read timed out")
+    client._socket = mock_socket
+
+    with pytest.raises(IcapTimeoutError):
+        client._receive_response()
+
+    assert client._socket is None
+    assert not client.is_connected
+    mock_socket.close.assert_called_once()
+
+
+def test_sync_oserror_during_receive_closes_socket():
+    """OSError mid-response must close the socket, not just drop the reference.
+
+    Regression test: dropping the only reference without close() orphans the
+    file descriptor (ResourceWarning on CPython, fd exhaustion on PyPy).
+    """
+    from icap.exception import IcapConnectionError
+
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.side_effect = ConnectionResetError("Connection reset")
+    client._socket = mock_socket
+
+    with pytest.raises(IcapConnectionError):
+        client._receive_response()
+
+    assert client._socket is None
+    mock_socket.close.assert_called_once()
+
+
+def test_read_chunked_body_with_trailer_headers():
+    """Legitimate trailer headers after the final chunk are consumed."""
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    mock_socket.recv.return_value = b""
+    client._socket = mock_socket
+
+    body = client._read_chunked_body(b"5\r\nHello\r\n0\r\nX-Checksum: abc123\r\n\r\n")
+    assert body == b"Hello"
+
+
+def test_read_chunked_body_endless_trailers_raises_protocol_error():
+    """A server streaming endless trailer lines must not hang the client.
+
+    Regression test: the trailer loop is capped at MAX_HEADER_SIZE total bytes
+    so a malicious server cannot keep scan_file()/scan_bytes() blocked forever.
+    """
+    client = IcapClient("localhost", 1344)
+
+    mock_socket = MagicMock()
+    # Endless stream of non-empty trailer lines: without a cap this loops forever
+    mock_socket.recv.side_effect = lambda n: b"X-Junk: " + b"a" * 1024 + b"\r\n"
+    client._socket = mock_socket
+
+    with pytest.raises(IcapProtocolError, match="trailer section exceeds maximum size"):
+        client._read_chunked_body(b"5\r\nHello\r\n0\r\n")
+
+
+async def test_async_read_chunked_body_endless_trailers_raises_protocol_error(mocker):
+    """Async parity for the trailer cap: endless trailers raise, not hang."""
+    from icap import AsyncIcapClient
+
+    client = AsyncIcapClient("localhost", 1344)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+    mock_reader = mocker.MagicMock()
+    mock_reader.read = mocker.AsyncMock(side_effect=lambda n: b"X-Junk: " + b"a" * 1024 + b"\r\n")
+
+    mocker.patch("asyncio.open_connection", return_value=(mock_reader, mock_writer))
+    await client.connect()
+
+    with pytest.raises(IcapProtocolError, match="trailer section exceeds maximum size"):
+        await client._read_chunked_body(b"5\r\nHello\r\n0\r\n")
+
+
+async def test_async_timeout_during_receive_drops_transport(mocker):
+    """Timeout mid-response must drop the async transport.
+
+    Regression test: without dropping, is_connected stays True and the next
+    request on the same client parses the aborted response's late-arriving
+    bytes as its own reply.
+    """
+    import asyncio
+
+    from icap import AsyncIcapClient
+    from icap.exception import IcapTimeoutError
+
+    client = AsyncIcapClient("localhost", 1344, timeout=0.1)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+    mock_reader = mocker.MagicMock()
+    mock_reader.read = mocker.AsyncMock(side_effect=asyncio.TimeoutError("Read timed out"))
+
+    mocker.patch("asyncio.open_connection", return_value=(mock_reader, mock_writer))
+
+    async def mock_wait_for(coro, timeout):
+        return await coro
+
+    mocker.patch("asyncio.wait_for", mock_wait_for)
+
+    await client.connect()
+
+    with pytest.raises(IcapTimeoutError):
+        await client._receive_response()
+
+    assert not client.is_connected
+    mock_writer.close.assert_called()
+
+
+async def test_async_slow_but_steady_transfer_is_not_cancelled(mocker):
+    """A transfer longer than `timeout` succeeds while each read stays fast.
+
+    Regression test: an aggregate wait_for around the whole response read used
+    to cancel healthy large transfers whose total time exceeded the timeout.
+    The timeout applies per read operation, matching the sync client.
+    """
+    import asyncio
+
+    from icap import AsyncIcapClient
+
+    client = AsyncIcapClient("localhost", 1344, timeout=0.15)
+
+    body_reads = [b"12345"] * 6  # 30 body bytes in 6 slow reads
+    reads = [b"ICAP/1.0 200 OK\r\nContent-Length: 30\r\n\r\n"] + body_reads
+    reads_iter = iter(reads)
+
+    async def slow_read(n):
+        await asyncio.sleep(0.05)  # each read well under timeout; total ~0.35s over it
+        return next(reads_iter)
+
+    mock_writer = mocker.MagicMock()
+    mock_writer.drain = mocker.AsyncMock()
+    mock_reader = mocker.MagicMock()
+    mock_reader.read = mocker.MagicMock(side_effect=slow_read)
+
+    mocker.patch("asyncio.open_connection", return_value=(mock_reader, mock_writer))
+    await client.connect()
+
+    response = await client._send_and_receive(b"test request")
+
+    assert response.status_code == 200
+    assert response.body == b"12345" * 6

@@ -230,6 +230,22 @@ class IcapClient(IcapProtocol):
                     logger.warning(f"Error while disconnecting: {e}")
                 self._socket = None
 
+    def _drop_socket(self) -> None:
+        """Drop the socket after a fatal error mid-request.
+
+        Best-effort close so the file descriptor is released, then clear the
+        reference so is_connected reflects reality and the next call
+        reconnects. The connection cannot be reused after a timeout or OS
+        error: unread bytes of the aborted response would be parsed as the
+        reply to the next request.
+        """
+        if self._socket is not None:
+            try:
+                self._socket.close()
+            except OSError:
+                pass
+        self._socket = None
+
     def __enter__(self) -> "IcapClient":
         """Context manager entry."""
         self.connect()
@@ -623,9 +639,10 @@ class IcapClient(IcapProtocol):
             return self._receive_response()
 
         except socket.timeout as e:
+            self._drop_socket()
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except OSError as e:
-            self._socket = None
+            self._drop_socket()
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
     def _iter_chunks(self, stream: BinaryIO, chunk_size: int) -> Iterator[bytes]:
@@ -724,9 +741,10 @@ class IcapClient(IcapProtocol):
             logger.debug(f"Received {len(response_data)} bytes from ICAP server")
 
         except socket.timeout as e:
+            self._drop_socket()
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except OSError as e:
-            self._socket = None
+            self._drop_socket()
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
         response = IcapResponse.parse(response_data)
@@ -790,9 +808,10 @@ class IcapClient(IcapProtocol):
             logger.debug(f"Sending {len(request)} bytes to ICAP server")
             self._socket.sendall(request)
         except socket.timeout as e:
+            self._drop_socket()
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except OSError as e:
-            self._socket = None
+            self._drop_socket()
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
 
         return self._receive_response()
@@ -829,9 +848,17 @@ class IcapClient(IcapProtocol):
             if chunk_size == 0:
                 # Final chunk - consume trailing CRLF (and any trailer headers)
                 # Per RFC 7230, after the 0-size chunk there may be trailer headers
-                # followed by a final CRLF. We need to read until we see the empty line.
+                # followed by a final CRLF. We need to read until we see the empty
+                # line. Total trailer bytes are capped at MAX_HEADER_SIZE so a
+                # server streaming endless trailers cannot hang the client.
+                trailer_bytes = 0
                 while True:
                     while b"\r\n" not in buffer:
+                        if trailer_bytes + len(buffer) > self.MAX_HEADER_SIZE:
+                            raise IcapProtocolError(
+                                f"Chunked trailer section exceeds maximum size "
+                                f"({self.MAX_HEADER_SIZE:,} bytes)"
+                            )
                         chunk = self._socket.recv(self.BUFFER_SIZE)
                         if not chunk:
                             break
@@ -841,6 +868,12 @@ class IcapClient(IcapProtocol):
                     idx = buffer.index(b"\r\n")
                     line = bytes(buffer[:idx])
                     del buffer[: idx + 2]
+                    trailer_bytes += idx + 2
+                    if trailer_bytes > self.MAX_HEADER_SIZE:
+                        raise IcapProtocolError(
+                            f"Chunked trailer section exceeds maximum size "
+                            f"({self.MAX_HEADER_SIZE:,} bytes)"
+                        )
                     if not line:
                         # Empty line signals end of chunked body
                         break
@@ -917,7 +950,8 @@ class IcapClient(IcapProtocol):
             return response
 
         except socket.timeout as e:
+            self._drop_socket()
             raise IcapTimeoutError(f"Request to {self.host}:{self.port} timed out") from e
         except OSError as e:
-            self._socket = None
+            self._drop_socket()
             raise IcapConnectionError(f"Connection error with {self.host}:{self.port}: {e}") from e
