@@ -4,7 +4,36 @@ This module contains protocol-level constants and request building logic
 shared between the sync IcapClient and async AsyncIcapClient.
 """
 
-from typing import Dict, Optional
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Callable
+from urllib.parse import quote
+
+from .exception import IcapProtocolError
+
+# Characters that are invalid in header names (per RFC 7230)
+# Header names must be tokens: 1*tchar where tchar excludes CTLs, separators
+_INVALID_HEADER_NAME_CHARS = re.compile(r"[\x00-\x1f\x7f()<>@,;:\\\"/\[\]?={} \t]")
+
+# Characters that are invalid in header values (control chars except HTAB)
+# CRLF injection is the main concern - values must not contain CR or LF
+_INVALID_HEADER_VALUE_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+
+# Character class for ICAP service names. Service names appear verbatim in the
+# request line ("OPTIONS icap://host:port/<service> ICAP/1.0"), so CR, LF,
+# spaces, and control characters would corrupt request framing and are
+# rejected. Everything in the RFC 3986 path/query character set is allowed,
+# because RFC 3507 ICAP URIs may carry query components that real servers
+# depend on (e.g. "avscan?allow204=on", "srv_clamav?force=on").
+_VALID_SERVICE_NAME = re.compile(r"^[A-Za-z0-9\-._~%!$&'()*+,;=:@/?]+$")
+
+# Chunked transfer encoding terminators (RFC 7230).
+CHUNK_TERMINATOR = b"0\r\n\r\n"
+# Terminator with "ieof" extension (RFC 3507 §4.5) signaling end of preview
+# when the entire body fit in the preview.
+CHUNK_TERMINATOR_IEOF = b"0; ieof\r\n\r\n"
 
 
 class IcapProtocol:
@@ -16,7 +45,33 @@ class IcapProtocol:
     BUFFER_SIZE: int = 8192
     USER_AGENT: str = "Python-ICAP-Client/1.0"
 
-    def _build_request(self, request_line: str, headers: Dict[str, str]) -> bytes:
+    @staticmethod
+    def _validate_header(name: str, value: str) -> None:
+        """Validate header name and value to prevent injection attacks.
+
+        Args:
+            name: Header name
+            value: Header value
+
+        Raises:
+            ValueError: If header name or value contains invalid characters
+        """
+        if not name:
+            raise ValueError("Header name cannot be empty")
+
+        if _INVALID_HEADER_NAME_CHARS.search(name):
+            raise ValueError(
+                f"Invalid header name {name!r}: contains invalid characters "
+                "(control characters, spaces, or separators not allowed)"
+            )
+
+        if _INVALID_HEADER_VALUE_CHARS.search(value):
+            raise ValueError(
+                f"Invalid header value for {name!r}: contains control characters "
+                "(CR, LF, and other control characters not allowed)"
+            )
+
+    def _build_request(self, request_line: str, headers: dict[str, str]) -> bytes:
         """Build ICAP request from request line and headers.
 
         Args:
@@ -25,24 +80,54 @@ class IcapProtocol:
 
         Returns:
             Encoded request bytes
+
+        Raises:
+            ValueError: If any header name or value contains invalid characters
         """
         request = request_line
         for key, value in headers.items():
+            self._validate_header(key, value)
             request += f"{key}: {value}{self.CRLF}"
         request += self.CRLF
         return request.encode("utf-8")
 
-    def _build_http_request_header(self, filename: Optional[str]) -> bytes:
+    def _build_http_request_header(self, filename: str | None) -> bytes:
         """Build encapsulated HTTP request header for file scanning.
 
         Args:
-            filename: Optional filename to include in the request path
+            filename: Optional filename to include in the request path. The
+                filename is URL-encoded so that characters legal in a POSIX
+                filename (including spaces and CR/LF) cannot inject extra
+                headers or corrupt the request line.
 
         Returns:
             HTTP request header bytes
         """
-        resource = f"/{filename}" if filename else "/scan"
+        if filename:
+            resource = "/" + quote(filename, safe="")
+        else:
+            resource = "/scan"
         return f"GET {resource} HTTP/1.1\r\nHost: file-scan\r\n\r\n".encode()
+
+    @staticmethod
+    def _validate_service_name(service: str) -> None:
+        """Validate that a service name is safe to interpolate into the request line.
+
+        The request line ("OPTIONS icap://host:port/<service> ICAP/1.0") is not
+        escape-aware; a CR/LF or space in the service name would corrupt
+        framing. Reject anything outside the RFC 3986 path/query character set
+        (query components like "avscan?allow204=on" are valid per RFC 3507).
+
+        Raises:
+            ValueError: If the service name is empty or contains invalid characters.
+        """
+        if not service:
+            raise ValueError("Service name cannot be empty")
+        if not _VALID_SERVICE_NAME.match(service):
+            raise ValueError(
+                f"Invalid service name {service!r}: must contain only URI "
+                "path/query characters (no spaces, control characters, or CR/LF)"
+            )
 
     def _build_http_response_header(self, content_length: int) -> bytes:
         """Build encapsulated HTTP response header for file scanning.
@@ -90,9 +175,193 @@ class IcapProtocol:
 
     @staticmethod
     def _encode_chunk_terminator() -> bytes:
-        """Return the chunk terminator sequence.
+        """Return the chunk terminator sequence."""
+        return CHUNK_TERMINATOR
 
-        Returns:
-            Zero-length chunk terminator bytes
-        """
-        return b"0\r\n\r\n"
+
+# =============================================================================
+# Shared Protocol Utilities
+# =============================================================================
+# These functions contain pure protocol logic shared between sync and async
+# clients. They perform no I/O operations.
+
+
+@dataclass
+class ResponseHeaders:
+    """Parsed response header information."""
+
+    content_length: int | None
+    """Content-Length header value, or None if not present."""
+
+    is_chunked: bool
+    """True if Transfer-Encoding: chunked is present."""
+
+
+@dataclass
+class PreviewData:
+    """Data prepared for preview mode transmission."""
+
+    preview_chunk: bytes
+    """Encoded preview chunk including terminator (with ieof if complete)."""
+
+    remainder: bytes
+    """Remaining body data to send after 100 Continue."""
+
+    is_complete: bool
+    """True if entire body fits in preview (no remainder needed)."""
+
+
+def parse_response_headers(headers_str: str) -> ResponseHeaders:
+    """Parse response headers to extract Content-Length and Transfer-Encoding.
+
+    This function extracts the information needed to determine how to read
+    the response body: by Content-Length, by chunked encoding, or no body.
+
+    Args:
+        headers_str: Raw headers string (decoded from bytes, excluding the
+                     terminating CRLF CRLF)
+
+    Returns:
+        ResponseHeaders with content_length and is_chunked fields.
+
+    Raises:
+        IcapProtocolError: If Content-Length header has an invalid value.
+    """
+    content_length: int | None = None
+    is_chunked = False
+
+    for line in headers_str.split("\r\n")[1:]:  # Skip status line
+        if ":" in line:
+            key, value = line.split(":", 1)
+            key_lower = key.strip().lower()
+            value_stripped = value.strip().lower()
+
+            if key_lower == "content-length":
+                try:
+                    content_length = int(value.strip())
+                except ValueError:
+                    raise IcapProtocolError(
+                        f"Invalid Content-Length header: {value.strip()!r}"
+                    ) from None
+                if content_length < 0:
+                    raise IcapProtocolError(
+                        f"Invalid Content-Length header: {content_length} (must be non-negative)"
+                    )
+            elif key_lower == "transfer-encoding" and "chunked" in value_stripped:
+                is_chunked = True
+
+    # Per RFC 7230 §3.3.3: if Transfer-Encoding is present, Content-Length
+    # must be ignored. Defends against request-smuggling-style ambiguity.
+    if is_chunked:
+        content_length = None
+
+    return ResponseHeaders(content_length=content_length, is_chunked=is_chunked)
+
+
+def parse_chunk_size(size_line: bytes, max_size: int) -> int:
+    """Parse and validate a chunk size line from chunked transfer encoding.
+
+    Per RFC 7230, chunk size is a hex number optionally followed by extensions
+    after a semicolon. This function parses the size and validates it against
+    the maximum allowed size.
+
+    Args:
+        size_line: Raw chunk size line (without trailing CRLF)
+        max_size: Maximum allowed chunk size in bytes
+
+    Returns:
+        The parsed chunk size as an integer.
+
+    Raises:
+        IcapProtocolError: If the chunk size is invalid or exceeds max_size.
+    """
+    try:
+        # Chunk size may have extensions after semicolon, ignore them
+        chunk_size = int(size_line.split(b";")[0].strip(), 16)
+    except ValueError:
+        raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}") from None
+
+    if chunk_size < 0:
+        raise IcapProtocolError(f"Invalid chunk size in response: {size_line!r}")
+
+    if chunk_size > max_size:
+        raise IcapProtocolError(
+            f"Chunk size ({chunk_size:,} bytes) exceeds maximum allowed size ({max_size:,} bytes)"
+        )
+
+    return chunk_size
+
+
+def validate_body_size(current_size: int, max_size: int) -> None:
+    """Validate that body size doesn't exceed maximum allowed.
+
+    Args:
+        current_size: Current accumulated body size in bytes
+        max_size: Maximum allowed size in bytes
+
+    Raises:
+        IcapProtocolError: If current_size exceeds max_size.
+    """
+    if current_size > max_size:
+        raise IcapProtocolError(
+            f"Chunked response body ({current_size:,} bytes) exceeds "
+            f"maximum allowed size ({max_size:,} bytes)"
+        )
+
+
+def validate_content_length(content_length: int, max_size: int) -> None:
+    """Validate Content-Length against maximum allowed size.
+
+    Args:
+        content_length: Declared content length in bytes
+        max_size: Maximum allowed size in bytes
+
+    Raises:
+        IcapProtocolError: If content_length exceeds max_size.
+    """
+    if content_length > max_size:
+        raise IcapProtocolError(
+            f"Response Content-Length ({content_length:,} bytes) exceeds "
+            f"maximum allowed size ({max_size:,} bytes)"
+        )
+
+
+def prepare_preview_data(
+    body: bytes,
+    preview_size: int,
+    encode_chunked: Callable[[bytes], bytes],
+    encode_terminator: Callable[[], bytes],
+) -> PreviewData:
+    """Prepare body data for preview mode transmission.
+
+    Splits the body into preview and remainder portions, and encodes the
+    preview chunk with appropriate terminator (ieof if complete).
+
+    Per RFC 3507 Section 4.5, if the entire body fits within the preview,
+    the zero-length chunk terminator should include the "ieof" extension
+    to indicate no more data follows.
+
+    Args:
+        body: Full body content to be sent
+        preview_size: Maximum bytes to include in preview
+        encode_chunked: Function to encode data as a chunk (IcapProtocol._encode_chunked)
+        encode_terminator: Function to get terminator (IcapProtocol._encode_chunk_terminator)
+
+    Returns:
+        PreviewData with encoded preview_chunk, remainder, and is_complete flag.
+    """
+    preview_data = body[:preview_size]
+    remainder = body[preview_size:]
+    is_complete = len(body) <= preview_size
+
+    # Build the preview chunk
+    preview_chunk = encode_chunked(preview_data)
+
+    if is_complete:
+        # Use ieof on zero-length chunk to indicate no more data
+        preview_chunk += CHUNK_TERMINATOR_IEOF
+    else:
+        # Normal zero-length terminator for preview section
+        preview_chunk += encode_terminator()
+
+    return PreviewData(preview_chunk=preview_chunk, remainder=remainder, is_complete=is_complete)

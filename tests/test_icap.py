@@ -49,8 +49,10 @@ def test_is_success():
 
 
 def test_invalid_response():
-    """Test parsing an invalid response raises ValueError."""
-    with pytest.raises(ValueError):
+    """Test parsing an invalid response raises IcapProtocolError."""
+    from icap.exception import IcapProtocolError
+
+    with pytest.raises(IcapProtocolError):
         IcapResponse.parse(b"Invalid response")
 
 
@@ -71,6 +73,27 @@ def test_port_setter_valid():
     client = IcapClient("localhost")
     client.port = 8080
     assert client.port == 8080
+
+
+def test_async_port_setter_valid():
+    """AsyncIcapClient must support port setter for parity with IcapClient."""
+    client = AsyncIcapClient("localhost", 1344)
+    client.port = 8080
+    assert client.port == 8080
+
+
+def test_async_port_setter_invalid():
+    client = AsyncIcapClient("localhost", 1344)
+    with pytest.raises(TypeError):
+        client.port = "not-an-int"  # type: ignore[assignment]
+
+
+def test_mock_client_accepts_parity_kwargs():
+    """MockIcapClient must accept the same kwargs as IcapClient so test
+    fixtures can swap real and mock clients without TypeError."""
+    from icap.pytest_plugin import MockIcapClient
+
+    MockIcapClient("h", 1344, timeout=5.0, ssl_context=None, max_response_size=1000)
 
 
 def test_port_setter_invalid():
@@ -223,6 +246,57 @@ def test_protocol_build_http_request_header_without_filename():
     assert result == b"GET /scan HTTP/1.1\r\nHost: file-scan\r\n\r\n"
 
 
+def test_protocol_build_http_request_header_url_encodes_filename():
+    """Filename is URL-encoded so CRLF, spaces, and other URI-unsafe characters
+    cannot inject headers or break the request line."""
+    from icap._protocol import IcapProtocol
+
+    protocol = IcapProtocol()
+    result = protocol._build_http_request_header("virus.exe\r\nEvil: x")
+
+    assert b"\r\nEvil: x" not in result.split(b"\r\n", 1)[0]
+    assert b"GET /virus.exe%0D%0AEvil%3A%20x HTTP/1.1\r\n" in result
+
+
+def test_protocol_validate_service_name_rejects_crlf():
+    """Service name with CRLF must be rejected before it reaches the wire."""
+    from icap._protocol import IcapProtocol
+
+    with pytest.raises(ValueError, match="Invalid service name"):
+        IcapProtocol._validate_service_name("avscan\r\nEvil: x")
+
+
+def test_protocol_validate_service_name_rejects_empty():
+    from icap._protocol import IcapProtocol
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        IcapProtocol._validate_service_name("")
+
+
+def test_protocol_validate_service_name_accepts_typical_names():
+    from icap._protocol import IcapProtocol
+
+    for name in ("avscan", "srv_clamav".replace("_", "-"), "echo", "scan/v1", "v1.0"):
+        IcapProtocol._validate_service_name(name)
+
+
+def test_protocol_validate_service_name_accepts_query_components():
+    """RFC 3507 ICAP URIs may carry query components (c-icap, SquidClamav style)."""
+    from icap._protocol import IcapProtocol
+
+    for name in ("avscan?allow204=on", "srv_clamav?force=on", "scan?mode=full&level=2"):
+        IcapProtocol._validate_service_name(name)
+
+
+def test_protocol_validate_service_name_rejects_space_and_control_chars():
+    """Spaces and control characters would corrupt request-line framing."""
+    from icap._protocol import IcapProtocol
+
+    for name in ("av scan", "avscan\x00", "avscan\tv1"):
+        with pytest.raises(ValueError, match="Invalid service name"):
+            IcapProtocol._validate_service_name(name)
+
+
 def test_protocol_build_http_response_header():
     """Test _build_http_response_header method."""
     from icap._protocol import IcapProtocol
@@ -325,3 +399,45 @@ def test_response_parse_with_empty_headers():
     assert response.status_code == 200
     assert response.headers == {}
     assert response.body == b"body content"
+
+
+def test_response_parse_header_without_colon():
+    """Test parsing response with a malformed header line (no colon)."""
+    # Header line without colon should be skipped
+    raw = b"ICAP/1.0 200 OK\r\nServer: Test\r\nMalformedLine\r\nAnother: Valid\r\n\r\n"
+    response = IcapResponse.parse(raw)
+
+    assert response.status_code == 200
+    assert response.headers["Server"] == "Test"
+    assert response.headers["Another"] == "Valid"
+    # Malformed line without colon should not be in headers
+    assert "MalformedLine" not in response.headers
+
+
+def test_response_parse_header_with_colon_in_value():
+    """Test parsing header where value contains colons."""
+    raw = b"ICAP/1.0 200 OK\r\nX-Info: value:with:colons\r\n\r\n"
+    response = IcapResponse.parse(raw)
+
+    assert response.headers["X-Info"] == "value:with:colons"
+
+
+# AsyncIcapClient property tests
+
+
+def test_async_client_properties():
+    """Test AsyncIcapClient property accessors."""
+    client = AsyncIcapClient("example.com", port=1345, timeout=30.0)
+
+    assert client.host == "example.com"
+    assert client.port == 1345
+    assert not client.is_connected
+
+
+def test_async_client_default_values():
+    """Test AsyncIcapClient default property values."""
+    client = AsyncIcapClient("localhost")
+
+    assert client.host == "localhost"
+    assert client.port == 1344  # Default ICAP port
+    assert client._ssl_context is None

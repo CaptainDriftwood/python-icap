@@ -1,6 +1,31 @@
 """Tests for the icap.pytest_plugin using pytester."""
 
+import pytest
+
 pytest_plugins = ["pytester"]
+
+
+@pytest.fixture(autouse=True)
+def setup_pytester_asyncio_config(pytester):
+    """Set asyncio config for all pytester subprocess tests to suppress warnings."""
+    pytester.makeini(
+        """
+        [pytest]
+        asyncio_mode = auto
+        asyncio_default_fixture_loop_scope = function
+        """
+    )
+
+
+def test_pytest_plugin_entrypoint_registers(pytestconfig):
+    """Defensive: the pytest11 entry-point in pyproject.toml must resolve and
+    register the plugin under the name "icap" in the live session. Fails loudly
+    if the entry-point string drifts from a real module path or the package
+    needs reinstalling after a refactor."""
+    assert pytestconfig.pluginmanager.has_plugin("icap"), (
+        "icap plugin not registered. Check pyproject.toml "
+        "[project.entry-points.pytest11] and reinstall the package."
+    )
 
 
 def test_icap_marker_registered(pytester):

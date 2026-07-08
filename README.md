@@ -12,6 +12,7 @@
 [![Python 3.8 | 3.9 | 3.10 | 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![No Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](pyproject.toml)
+[![LLMS.txt](https://img.shields.io/badge/LLMS-txt-blue)](https://github.com/CaptainDriftwood/python-icap/blob/master/LLMS.txt)
 
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -21,6 +22,7 @@ A pure Python ICAP (Internet Content Adaptation Protocol) client with no externa
 
 ## Table of Contents
 
+- [Quick Reference](#quick-reference)
 - [Overview](#overview)
 - [What is ICAP?](#what-is-icap)
   - [Key Differences from HTTP](#key-differences-from-http)
@@ -39,6 +41,7 @@ A pure Python ICAP (Internet Content Adaptation Protocol) client with no externa
   - [Scanning Content with RESPMOD](#scanning-content-with-respmod)
   - [Scanning Files](#scanning-files)
   - [Manual File Scanning (lower-level API)](#manual-file-scanning-lower-level-api)
+  - [Preview Mode](#preview-mode)
 - [Async Usage](#async-usage)
   - [Basic Async Example](#basic-async-example)
   - [Concurrent Scanning](#concurrent-scanning)
@@ -74,6 +77,39 @@ python-icap provides a clean, Pythonic API for integrating ICAP into your applic
 - **SSL/TLS support** - Secure connections with custom certificates and mutual TLS
 - **Pytest plugin** - Mock clients and fixtures for testing without a live server
 - **Zero dependencies** - Pure Python stdlib implementation
+
+## Quick Reference
+
+```python
+# Common imports
+from icap import IcapClient, AsyncIcapClient, IcapResponse
+from icap.exception import IcapException, IcapConnectionError, IcapTimeoutError
+
+# Scan bytes (simplest)
+with IcapClient("localhost") as client:
+    response = client.scan_bytes(b"content")
+    is_clean = response.is_no_modification
+
+# Scan file
+with IcapClient("localhost") as client:
+    response = client.scan_file("/path/to/file.pdf")
+
+# Async scan
+async with AsyncIcapClient("localhost") as client:
+    response = await client.scan_bytes(b"content")
+
+# Check server capabilities
+with IcapClient("localhost") as client:
+    response = client.options("avscan")
+    preview_size = response.headers.get("Preview")  # bytes for preview mode
+
+# Response properties
+response.status_code       # 200, 204, etc.
+response.is_success        # True for 2xx
+response.is_no_modification  # True for 204 (clean)
+response.headers           # Dict of ICAP headers
+response.body              # Response body bytes
+```
 
 ## What is ICAP?
 
@@ -188,10 +224,11 @@ This allows the ICAP server to efficiently parse the message without scanning th
 
 ## Installation
 
-> **Note:** This package is not yet published to PyPI due to a name collision. Install directly from source.
-
 ```bash
-# Standard installation
+# Install from PyPI
+pip install python-icap
+
+# Or install from source
 pip install .
 
 # Development installation (editable)
@@ -321,6 +358,51 @@ if scan_file('/path/to/file.pdf'):
 else:
     print("File contains threats")
 ```
+
+### Preview Mode
+
+ICAP servers can advertise a preview size via OPTIONS, allowing clients to send just the beginning of a file for initial scanning. If the server can determine the content is clean from the preview alone, it returns 204; otherwise it requests the full content with 100 Continue.
+
+```python
+from icap import IcapClient
+
+with IcapClient('localhost', port=1344) as client:
+    # Step 1: Query server capabilities to get preview size
+    options_response = client.options('avscan')
+    preview_size = options_response.headers.get('Preview')
+
+    if preview_size:
+        print(f"Server supports preview mode: {preview_size} bytes")
+    else:
+        print("Server does not advertise preview support")
+
+    # Step 2: Send RESPMOD with preview enabled
+    # The client handles the 100 Continue flow automatically
+    content = b"Large file content here..." * 1000
+
+    response = client.scan_bytes(
+        content,
+        service='avscan',
+        preview=int(preview_size) if preview_size else None
+    )
+
+    if response.is_no_modification:
+        print("Content is clean")
+    else:
+        print("Threat detected")
+```
+
+**How Preview Mode Works:**
+
+1. Client sends OPTIONS to discover the server's preview size
+2. Client sends RESPMOD with only the first N bytes (preview)
+3. Server analyzes the preview:
+   - Returns **204 No Modification** if the preview is enough to determine content is clean
+   - Returns **100 Continue** to request the remaining data
+4. If 100 Continue received, client sends the rest of the content
+5. Server returns final verdict (200 or 204)
+
+Preview mode reduces bandwidth and latency when scanning large files that are obviously clean (or obviously malicious) from their headers.
 
 ## Async Usage
 
@@ -596,8 +678,8 @@ python-icap/
 │   ├── async_icap.py     # Asynchronous ICAP client
 │   ├── _protocol.py      # Shared protocol constants
 │   ├── response.py       # Response handling
-│   └── exception.py      # Custom exceptions
-├── pytest_src/icap/        # Pytest plugin for ICAP testing
+│   ├── exception.py      # Custom exceptions
+│   └── pytest_plugin/    # Bundled pytest plugin for testing
 ├── tests/                # Unit tests
 ├── examples/             # Usage examples
 ├── docker/               # Docker setup for integration testing

@@ -318,6 +318,15 @@ async def test_async_mock_client_context_manager():
     assert not client.is_connected
 
 
+def test_async_mock_client_rejects_sync_context_manager():
+    """Sync `with` on MockAsyncIcapClient raises TypeError instead of silently
+    leaving the unawaited connect() coroutine and bogus connection state."""
+    client = MockAsyncIcapClient()
+    with pytest.raises(TypeError, match="async with"):
+        with client:
+            pass
+
+
 @pytest.mark.asyncio
 async def test_async_mock_client_records_calls():
     """Async mock records method calls."""
@@ -924,6 +933,35 @@ def test_matcher_filename_pattern():
     # Non-.exe files don't match
     response3 = client.scan_bytes(b"content", filename="document.pdf")
     assert response3.is_no_modification
+
+
+def test_sync_mock_rejects_async_callback():
+    """Registering an async callback on the sync mock raises TypeError at
+    registration time. Otherwise the call returned an unawaited coroutine
+    stored as the IcapResponse, producing impossible-to-diagnose failures."""
+
+    async def async_cb(data: bytes, **kwargs):
+        return IcapResponseBuilder().clean().build()
+
+    client = MockIcapClient()
+    with pytest.raises(TypeError, match="Async callbacks are not supported"):
+        client.on_respmod(callback=async_cb)
+
+
+def test_matcher_filename_pattern_requires_full_match():
+    """filename_matches uses fullmatch semantics: a pattern matching only a
+    prefix of the filename does not trigger the matcher."""
+    client = MockIcapClient()
+    client.when(filename_matches=r"virus").respond(IcapResponseBuilder().virus("X").build())
+
+    # "virus" alone matches "virus" exactly
+    response1 = client.scan_bytes(b"content", filename="virus")
+    assert not response1.is_no_modification
+
+    # "virus" does NOT match "virus.exe" because the pattern doesn't cover
+    # the trailing ".exe" — users must write ".*virus.*" or similar.
+    response2 = client.scan_bytes(b"content", filename="virus.exe")
+    assert response2.is_no_modification
 
 
 def test_matcher_data_contains():

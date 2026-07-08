@@ -530,6 +530,11 @@ def icap_mock(request) -> Generator[MockIcapClient, None, None]:
         client.on_any(IcapResponseBuilder().error().build())
     elif isinstance(response_type, IcapResponse):
         client.on_any(response_type)
+    elif response_type is not None:
+        raise ValueError(
+            f"Unknown response preset: {response_type!r}. "
+            "Valid presets: 'clean', 'virus', 'error', or an IcapResponse instance."
+        )
 
     # Handle per-method configuration
     for method in ("options", "respmod", "reqmod"):
@@ -551,6 +556,12 @@ def icap_mock(request) -> Generator[MockIcapClient, None, None]:
                     configure_method(IcapResponseBuilder().error().build())
                 elif isinstance(resp, IcapResponse):
                     configure_method(resp)
+                elif resp is not None:
+                    raise ValueError(
+                        f"Unknown response preset for {method!r}: {resp!r}. "
+                        "Valid presets: 'clean', 'virus', 'error', or an "
+                        "IcapResponse instance."
+                    )
 
     yield client
 

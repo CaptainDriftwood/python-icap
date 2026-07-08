@@ -1,4 +1,132 @@
-from typing import Dict
+from dataclasses import dataclass, fields
+from functools import cached_property
+from typing import Dict, Iterator, MutableMapping, Optional
+
+from .exception import IcapProtocolError
+
+__all__ = ["CaseInsensitiveDict", "EncapsulatedParts", "IcapResponse"]
+
+
+@dataclass
+class EncapsulatedParts:
+    """
+    Parsed representation of the ICAP Encapsulated header.
+
+    The Encapsulated header indicates byte offsets of different parts of the
+    encapsulated HTTP message within the ICAP response body. This is useful
+    for understanding which parts of the HTTP message were modified.
+
+    Attributes:
+        req_hdr: Offset of the encapsulated HTTP request headers, or None if not present.
+        req_body: Offset of the encapsulated HTTP request body, or None if not present.
+        res_hdr: Offset of the encapsulated HTTP response headers, or None if not present.
+        res_body: Offset of the encapsulated HTTP response body, or None if not present.
+        null_body: Offset indicating no body follows, or None if not present.
+        opt_body: Offset of OPTIONS response body, or None if not present.
+
+    Example:
+        >>> response.encapsulated.res_hdr
+        0
+        >>> response.encapsulated.res_body
+        128
+    """
+
+    req_hdr: Optional[int] = None
+    req_body: Optional[int] = None
+    res_hdr: Optional[int] = None
+    res_body: Optional[int] = None
+    null_body: Optional[int] = None
+    opt_body: Optional[int] = None
+
+    @classmethod
+    def parse(cls, header_value: str) -> "EncapsulatedParts":
+        """
+        Parse an Encapsulated header value.
+
+        Args:
+            header_value: The Encapsulated header value (e.g., "res-hdr=0, res-body=128")
+
+        Returns:
+            EncapsulatedParts with parsed offsets.
+
+        Raises:
+            IcapProtocolError: If an offset is not an integer or is negative.
+
+        Example:
+            >>> EncapsulatedParts.parse("req-hdr=0, res-hdr=45, res-body=128")
+            EncapsulatedParts(req_hdr=0, req_body=None, res_hdr=45, res_body=128, ...)
+        """
+        parts = cls()
+        valid_field_names = {f.name for f in fields(cls)}
+        for segment in header_value.split(","):
+            segment = segment.strip()
+            if "=" in segment:
+                name, value = segment.split("=", 1)
+                name = name.strip().replace("-", "_")
+                try:
+                    offset = int(value.strip())
+                except ValueError:
+                    raise IcapProtocolError(
+                        f"Invalid Encapsulated offset for {name!r}: {value.strip()!r}"
+                    ) from None
+                if offset < 0:
+                    raise IcapProtocolError(
+                        f"Invalid Encapsulated offset for {name!r}: {offset} (must be non-negative)"
+                    )
+                if name in valid_field_names:
+                    setattr(parts, name, offset)
+        return parts
+
+
+class CaseInsensitiveDict(MutableMapping[str, str]):
+    """
+    A dictionary with case-insensitive string keys.
+
+    Per RFC 3507, ICAP header field names are case-insensitive, following HTTP/1.1
+    conventions (RFC 7230 Section 3.2). This dictionary allows header lookups
+    regardless of case while preserving the original case for display.
+
+    Example:
+        >>> headers = CaseInsensitiveDict()
+        >>> headers["X-Virus-ID"] = "EICAR"
+        >>> headers["x-virus-id"]
+        'EICAR'
+        >>> headers["X-VIRUS-ID"]
+        'EICAR'
+    """
+
+    def __init__(self, data: Optional[Dict[str, str]] = None) -> None:
+        # Store as {lowercase_key: (original_key, value)}
+        self._store: Dict[str, tuple[str, str]] = {}
+        if data:
+            for key, value in data.items():
+                self[key] = value
+
+    def __setitem__(self, key: str, value: str) -> None:
+        # Store with lowercase key, but preserve original case
+        self._store[key.lower()] = (key, value)
+
+    def __getitem__(self, key: str) -> str:
+        return self._store[key.lower()][1]
+
+    def __delitem__(self, key: str) -> None:
+        del self._store[key.lower()]
+
+    def __iter__(self) -> Iterator[str]:
+        # Iterate over original-case keys
+        return (original_key for original_key, _ in self._store.values())
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+    def __contains__(self, key: object) -> bool:
+        if not isinstance(key, str):
+            return False
+        return key.lower() in self._store
+
+    def __repr__(self) -> str:
+        items = ", ".join(f"{k!r}: {v!r}" for k, v in self.items())
+        return f"CaseInsensitiveDict({{{items}}})"
 
 
 class IcapResponse:
@@ -18,7 +146,9 @@ class IcapResponse:
             - 404: Service Not Found
             - 500+: Server Error
         status_message: Human-readable status message (e.g., "OK", "No Content").
-        headers: Dictionary of ICAP response headers. May include:
+        headers: Case-insensitive dictionary of ICAP response headers (per RFC 3507).
+            Lookups work regardless of case: headers["X-Virus-ID"] == headers["x-virus-id"].
+            May include:
             - "X-Virus-ID": Name of detected virus (when virus found)
             - "X-Infection-Found": Details about the infection
             - "ISTag": Server state tag for caching
@@ -35,19 +165,30 @@ class IcapResponse:
         ...     print(f"Threat detected: {virus}")
     """
 
-    def __init__(self, status_code: int, status_message: str, headers: Dict[str, str], body: bytes):
+    def __init__(
+        self,
+        status_code: int,
+        status_message: str,
+        headers: MutableMapping[str, str],
+        body: bytes,
+    ):
         """
         Initialize ICAP response.
 
         Args:
             status_code: ICAP status code (e.g., 200, 204).
             status_message: Status message (e.g., "OK", "No Content").
-            headers: ICAP response headers as a dictionary.
+            headers: ICAP response headers. Will be converted to case-insensitive
+                dictionary if not already (per RFC 3507, header names are case-insensitive).
             body: Response body bytes (may contain modified HTTP response).
         """
         self.status_code = status_code
         self.status_message = status_message
-        self.headers = headers
+        # Ensure headers are case-insensitive per RFC 3507
+        if isinstance(headers, CaseInsensitiveDict):
+            self.headers = headers
+        else:
+            self.headers = CaseInsensitiveDict(dict(headers))
         self.body = body
 
     @property
@@ -92,6 +233,74 @@ class IcapResponse:
         """
         return self.status_code == 204
 
+    @cached_property
+    def encapsulated(self) -> Optional[EncapsulatedParts]:
+        """
+        Parse and return the Encapsulated header parts.
+
+        The Encapsulated header indicates byte offsets of HTTP message parts
+        within the ICAP response body. This helps identify which parts were
+        modified by the ICAP server. Parsed once and cached on the response.
+
+        Returns:
+            EncapsulatedParts with parsed offsets, or None if no Encapsulated header.
+
+        Raises:
+            IcapProtocolError: On first access, if the Encapsulated header value is
+                malformed. The result is cached, so this is raised at most once.
+
+        Example:
+            >>> response = client.respmod("avscan", http_request, http_response)
+            >>> if response.encapsulated and response.encapsulated.res_body is not None:
+            ...     body_offset = response.encapsulated.res_body
+            ...     modified_body = response.body[body_offset:]
+        """
+        enc_header = self.headers.get("Encapsulated")
+        if enc_header is None:
+            return None
+        return EncapsulatedParts.parse(enc_header)
+
+    @property
+    def istag(self) -> Optional[str]:
+        """
+        Get the ISTag (ICAP Service Tag) header value.
+
+        The ISTag is defined in RFC 3507 Section 4.7 and represents the current
+        state/version of the ICAP service. It typically changes when:
+
+        - Virus definitions are updated (for AV scanners)
+        - Scanning engine configuration changes
+        - Service policies are modified
+
+        This is useful for cache validation: if the ISTag hasn't changed since
+        a previous scan, cached results for unchanged files remain valid.
+
+        Returns:
+            The ISTag string with surrounding quotes stripped, or None if not
+            provided. RFC 3507 wraps ISTag values in double quotes; we unwrap
+            them so callers can compare ``response.istag == "foo"`` without
+            worrying about whether the server quoted the value.
+
+        Example:
+            >>> # Get ISTag from OPTIONS response
+            >>> response = client.options("avscan")
+            >>> current_istag = response.istag
+            >>> print(f"Service version: {current_istag}")
+            Service version: AV-2026030101-signatures
+
+            >>> # Use for cache validation (application-level logic)
+            >>> if current_istag == cached_istag:
+            ...     print("Cached scan results still valid")
+            ... else:
+            ...     print("Service updated, rescan needed")
+        """
+        value = self.headers.get("ISTag")
+        if value is None:
+            return None
+        if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+            return value[1:-1]
+        return value
+
     @classmethod
     def parse(cls, data: bytes) -> "IcapResponse":
         """
@@ -102,9 +311,15 @@ class IcapResponse:
 
         Returns:
             IcapResponse object
+
+        Raises:
+            IcapProtocolError: If the status line is malformed or the status
+                code is not an integer in 100-599.
         """
         parts = data.split(b"\r\n\r\n", 1)
-        header_section = parts[0].decode("utf-8", errors="ignore")
+        # Non-UTF-8 bytes (e.g. Latin-1 in vendor virus names or ISTags) must
+        # not make the whole scan verdict unreadable; replace them instead.
+        header_section = parts[0].decode("utf-8", errors="replace")
         body = parts[1] if len(parts) > 1 else b""
 
         lines = header_section.split("\r\n")
@@ -113,16 +328,34 @@ class IcapResponse:
         # Expected format: ICAP/1.0 200 OK
         status_parts = status_line.split(" ", 2)
         if len(status_parts) < 3:
-            raise ValueError(f"Invalid ICAP status line: {status_line}")
+            raise IcapProtocolError(f"Invalid ICAP status line: {status_line}")
 
-        status_code = int(status_parts[1])
+        try:
+            status_code = int(status_parts[1])
+        except ValueError:
+            raise IcapProtocolError(
+                f"Invalid ICAP status code: {status_parts[1]!r} (not an integer)"
+            ) from None
+
+        # Validate status code is in valid HTTP/ICAP range (100-599)
+        if not (100 <= status_code <= 599):
+            raise IcapProtocolError(f"Invalid ICAP status code: {status_code} (must be 100-599)")
         status_message = status_parts[2]
 
-        headers = {}
+        headers: CaseInsensitiveDict = CaseInsensitiveDict()
         for line in lines[1:]:
             if ":" in line:
                 key, value = line.split(":", 1)
-                headers[key.strip()] = value.strip()
+                key = key.strip()
+                value = value.strip()
+                # Per RFC 7230 §3.2.2, repeated headers can be combined with
+                # commas when their grammar is a comma-separated list. ICAP
+                # headers in the wild don't repeat, so this is a defensive
+                # fallback; it would be lossy for HTTP headers like Set-Cookie.
+                if key in headers:
+                    headers[key] = headers[key] + ", " + value
+                else:
+                    headers[key] = value
 
         return cls(status_code, status_message, headers, body)
 

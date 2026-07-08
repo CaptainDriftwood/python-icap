@@ -186,6 +186,9 @@ class IcapResponseBuilder:
         self._status_code = 200
         self._status_message = "OK"
         self._headers["X-Virus-ID"] = name
+        # X-Infection-Found is not in RFC 3507 but is the de-facto format used
+        # by c-icap and SquidClamav: Type (0=virus, 1=spyware), Resolution
+        # (0=informational, 1=removed, 2=blocked), and the threat name.
         self._headers["X-Infection-Found"] = f"Type=0; Resolution=2; Threat={name};"
         return self
 
@@ -233,6 +236,10 @@ class IcapResponseBuilder:
         self._headers["Preview"] = str(preview)
         self._headers["Transfer-Preview"] = "*"
         self._headers["Max-Connections"] = "100"
+        # Real ICAP servers emit Encapsulated on OPTIONS responses per RFC 3507.
+        # Default to null-body=0 so consumer code that inspects
+        # response.encapsulated behaves the same against the mock and a real server.
+        self._headers.setdefault("Encapsulated", "null-body=0")
         return self
 
     def error(
