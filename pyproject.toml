@@ -187,3 +187,9 @@ exclude_lines = [
     "^\\s*>>>",
     "^\\s*\\.\\.\\.",
 ]
+
+[tool.uv]
+# Skip package versions released in the last 14 days, so fresh releases have
+# time to surface problems before they are adopted. Keep this equal to the
+# cooldown in .github/dependabot.yml.
+exclude-newer = "14 days"
