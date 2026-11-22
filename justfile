@@ -174,3 +174,7 @@ benchmark *args:
 
 # Run a full CI-like check
 ci: fmt-check lint typecheck test
+
+# Audit dependencies for known vulnerabilities and adverse project statuses
+audit:
+    uv audit --locked
