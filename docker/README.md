@@ -150,8 +150,8 @@ You can also test manually using Python:
 from icap import IcapClient
 
 # Test connection
-with IcapClient('localhost', 1344) as client:
-    response = client.options('avscan')
+with IcapClient("localhost", 1344) as client:
+    response = client.options("avscan")
     print(f"Status: {response.status_code}")
     print(f"Headers: {response.headers}")
 ```

@@ -104,11 +104,11 @@ with IcapClient("localhost") as client:
     preview_size = response.headers.get("Preview")  # bytes for preview mode
 
 # Response properties
-response.status_code       # 200, 204, etc.
-response.is_success        # True for 2xx
+response.status_code  # 200, 204, etc.
+response.is_success  # True for 2xx
 response.is_no_modification  # True for 204 (clean)
-response.headers           # Dict of ICAP headers
-response.body              # Response body bytes
+response.headers  # Dict of ICAP headers
+response.body  # Response body bytes
 ```
 
 ## What is ICAP?
@@ -243,11 +243,11 @@ pip install -e .
 from icap import IcapClient
 
 # Create client and connect
-client = IcapClient('localhost', port=1344)
+client = IcapClient("localhost", port=1344)
 client.connect()
 
 # Check server options
-response = client.options('avscan')
+response = client.options("avscan")
 print(f"Status: {response.status_code} - {response.status_message}")
 
 # Disconnect when done
@@ -260,8 +260,8 @@ client.disconnect()
 from icap import IcapClient
 
 # Automatically handles connection/disconnection
-with IcapClient('localhost', port=1344) as client:
-    response = client.options('avscan')
+with IcapClient("localhost", port=1344) as client:
+    response = client.options("avscan")
     print(f"Status: {response.status_code}")
 ```
 
@@ -280,9 +280,9 @@ Content-Length: 13\r
 \r
 Hello, World!"""
 
-with IcapClient('localhost', port=1344) as client:
-    response = client.respmod('avscan', http_request, http_response)
-    
+with IcapClient("localhost", port=1344) as client:
+    response = client.respmod("avscan", http_request, http_response)
+
     if response.is_no_modification:
         print("Content is clean (204 No Modification)")
     elif response.is_success:
@@ -300,31 +300,31 @@ from icap import IcapClient
 from pathlib import Path
 
 # Scan a file by path (string)
-with IcapClient('localhost') as client:
-    response = client.scan_file('/path/to/file.pdf')
+with IcapClient("localhost") as client:
+    response = client.scan_file("/path/to/file.pdf")
     if response.is_no_modification:
         print("File is clean")
     else:
         print("File contains threats")
 
 # Scan a file using pathlib.Path object
-with IcapClient('localhost') as client:
-    file_path = Path('/path/to/document.pdf')
+with IcapClient("localhost") as client:
+    file_path = Path("/path/to/document.pdf")
     response = client.scan_file(file_path)
     if response.is_no_modification:
         print("File is clean")
 
 # Scan a file-like object (stream)
-with open('document.pdf', 'rb') as f:
-    with IcapClient('localhost') as client:
-        response = client.scan_stream(f, filename='document.pdf')
+with open("document.pdf", "rb") as f:
+    with IcapClient("localhost") as client:
+        response = client.scan_stream(f, filename="document.pdf")
         if response.is_no_modification:
             print("Stream is clean")
 
 # Scan bytes content directly
-with IcapClient('localhost') as client:
+with IcapClient("localhost") as client:
     content = b"Some file content or data"
-    response = client.scan_bytes(content, filename='data.bin')
+    response = client.scan_bytes(content, filename="data.bin")
     if response.is_no_modification:
         print("Content is clean")
 ```
@@ -334,26 +334,31 @@ with IcapClient('localhost') as client:
 ```python
 from icap import IcapClient
 
-def scan_file(filepath, icap_host='localhost', service='avscan'):
+
+def scan_file(filepath, icap_host="localhost", service="avscan"):
     """Scan a file using ICAP (lower-level approach)."""
-    with open(filepath, 'rb') as f:
+    with open(filepath, "rb") as f:
         content = f.read()
-    
+
     # Build HTTP response with file content
-    http_response = f"""HTTP/1.1 200 OK\r
+    http_response = (
+        f"""HTTP/1.1 200 OK\r
 Content-Type: application/octet-stream\r
 Content-Length: {len(content)}\r
 \r
-""".encode() + content
-    
+""".encode()
+        + content
+    )
+
     http_request = b"GET / HTTP/1.1\r\nHost: file-scan\r\n\r\n"
-    
+
     with IcapClient(icap_host) as client:
         response = client.respmod(service, http_request, http_response)
         return response.is_no_modification  # True if clean
 
+
 # Example usage
-if scan_file('/path/to/file.pdf'):
+if scan_file("/path/to/file.pdf"):
     print("File is clean")
 else:
     print("File contains threats")
@@ -366,10 +371,10 @@ ICAP servers can advertise a preview size via OPTIONS, allowing clients to send 
 ```python
 from icap import IcapClient
 
-with IcapClient('localhost', port=1344) as client:
+with IcapClient("localhost", port=1344) as client:
     # Step 1: Query server capabilities to get preview size
-    options_response = client.options('avscan')
-    preview_size = options_response.headers.get('Preview')
+    options_response = client.options("avscan")
+    preview_size = options_response.headers.get("Preview")
 
     if preview_size:
         print(f"Server supports preview mode: {preview_size} bytes")
@@ -381,9 +386,7 @@ with IcapClient('localhost', port=1344) as client:
     content = b"Large file content here..." * 1000
 
     response = client.scan_bytes(
-        content,
-        service='avscan',
-        preview=int(preview_size) if preview_size else None
+        content, service="avscan", preview=int(preview_size) if preview_size else None
     )
 
     if response.is_no_modification:
@@ -414,16 +417,18 @@ python-icap includes an async client (`AsyncIcapClient`) for use with `asyncio`.
 import asyncio
 from icap import AsyncIcapClient
 
+
 async def main():
-    async with AsyncIcapClient('localhost', port=1344) as client:
+    async with AsyncIcapClient("localhost", port=1344) as client:
         # Check server options
-        response = await client.options('avscan')
+        response = await client.options("avscan")
         print(f"Status: {response.status_code}")
 
         # Scan content
         response = await client.scan_bytes(b"Hello, World!", filename="test.txt")
         if response.is_no_modification:
             print("Content is clean")
+
 
 asyncio.run(main())
 ```
@@ -436,11 +441,13 @@ The async client enables scanning multiple files concurrently for improved throu
 import asyncio
 from icap import AsyncIcapClient
 
+
 async def scan_file(filepath: str) -> tuple[str, bool]:
     """Scan a single file and return (filepath, is_clean)."""
-    async with AsyncIcapClient('localhost', port=1344) as client:
+    async with AsyncIcapClient("localhost", port=1344) as client:
         response = await client.scan_file(filepath)
         return filepath, response.is_no_modification
+
 
 async def scan_multiple_files(files: list[str]) -> dict[str, bool]:
     """Scan multiple files concurrently."""
@@ -448,14 +455,16 @@ async def scan_multiple_files(files: list[str]) -> dict[str, bool]:
     results = await asyncio.gather(*tasks)
     return dict(results)
 
+
 # Example usage
 async def main():
-    files = ['/path/to/file1.pdf', '/path/to/file2.doc', '/path/to/file3.txt']
+    files = ["/path/to/file1.pdf", "/path/to/file2.doc", "/path/to/file3.txt"]
     results = await scan_multiple_files(files)
 
     for filepath, is_clean in results.items():
         status = "clean" if is_clean else "THREAT DETECTED"
         print(f"{filepath}: {status}")
+
 
 asyncio.run(main())
 ```
@@ -475,7 +484,7 @@ from icap import IcapClient
 # Create SSL context with system CA certificates
 ssl_context = ssl.create_default_context()
 
-with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
+with IcapClient("icap.example.com", ssl_context=ssl_context) as client:
     response = client.scan_bytes(b"content to scan")
     print(f"Clean: {response.is_no_modification}")
 ```
@@ -487,10 +496,10 @@ import ssl
 from icap import IcapClient
 
 # Use a custom CA certificate
-ssl_context = ssl.create_default_context(cafile='/path/to/ca.pem')
+ssl_context = ssl.create_default_context(cafile="/path/to/ca.pem")
 
-with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
-    response = client.scan_file('/path/to/file.pdf')
+with IcapClient("icap.example.com", ssl_context=ssl_context) as client:
+    response = client.scan_file("/path/to/file.pdf")
 ```
 
 ### TLS with Client Certificate Authentication
@@ -501,13 +510,10 @@ from icap import IcapClient
 
 # Create context with client certificate for mutual TLS
 ssl_context = ssl.create_default_context()
-ssl_context.load_cert_chain(
-    certfile='/path/to/client.pem',
-    keyfile='/path/to/client-key.pem'
-)
+ssl_context.load_cert_chain(certfile="/path/to/client.pem", keyfile="/path/to/client-key.pem")
 
-with IcapClient('icap.example.com', ssl_context=ssl_context) as client:
-    response = client.options('avscan')
+with IcapClient("icap.example.com", ssl_context=ssl_context) as client:
+    response = client.options("avscan")
 ```
 
 ### Async Client with TLS
@@ -517,12 +523,14 @@ import asyncio
 import ssl
 from icap import AsyncIcapClient
 
+
 async def secure_scan():
     ssl_context = ssl.create_default_context()
 
-    async with AsyncIcapClient('icap.example.com', ssl_context=ssl_context) as client:
+    async with AsyncIcapClient("icap.example.com", ssl_context=ssl_context) as client:
         response = await client.scan_bytes(b"content")
         print(f"Clean: {response.is_no_modification}")
+
 
 asyncio.run(secure_scan())
 ```
@@ -539,8 +547,8 @@ from icap import IcapClient
 logging.basicConfig(level=logging.DEBUG)
 
 # Now all ICAP operations will be logged
-with IcapClient('localhost') as client:
-    response = client.scan_file('/path/to/file.pdf')
+with IcapClient("localhost") as client:
+    response = client.scan_file("/path/to/file.pdf")
 ```
 
 ## Error Handling
@@ -558,8 +566,8 @@ from icap.exception import (
 )
 
 try:
-    with IcapClient('localhost', port=1344) as client:
-        response = client.scan_file('/path/to/file.pdf')
+    with IcapClient("localhost", port=1344) as client:
+        response = client.scan_file("/path/to/file.pdf")
 
         if response.is_no_modification:
             print("File is clean")
@@ -586,9 +594,9 @@ The [EICAR test string](https://www.eicar.org/download-anti-malware-testfile/) i
 from icap import IcapClient
 
 # EICAR test string - triggers antivirus detection
-EICAR = b'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 
-with IcapClient('localhost', port=1344) as client:
+with IcapClient("localhost", port=1344) as client:
     # Test with clean content - should return 204 No Modification
     clean_response = client.scan_bytes(b"Hello, World!", filename="clean.txt")
     print(f"Clean file: {'CLEAN' if clean_response.is_no_modification else 'DETECTED'}")
@@ -710,21 +718,24 @@ These fixtures connect to a real ICAP server (requires a running server):
 ```python
 import pytest
 
+
 # Basic usage - uses default localhost:1344
 def test_scan_clean_file(icap_client, sample_file):
     response = icap_client.scan_file(sample_file)
     assert response.is_no_modification
 
+
 # Custom configuration via marker
-@pytest.mark.icap(host='icap.example.com', port=1344)
+@pytest.mark.icap(host="icap.example.com", port=1344)
 def test_custom_server(icap_client):
-    response = icap_client.options('avscan')
+    response = icap_client.options("avscan")
     assert response.is_success
 
+
 # Async usage
-@pytest.mark.icap(host='icap.example.com', port=1344)
+@pytest.mark.icap(host="icap.example.com", port=1344)
 async def test_async_scan(async_icap_client):
-    response = await async_icap_client.options('avscan')
+    response = await async_icap_client.options("avscan")
     assert response.is_success
 ```
 
@@ -747,16 +758,19 @@ def test_scan_clean_content(mock_icap_client):
     assert response.is_no_modification
     mock_icap_client.assert_called("scan_bytes", times=1)
 
+
 def test_virus_detection(mock_icap_client_virus):
     """Test with mock configured to detect viruses."""
     response = mock_icap_client_virus.scan_bytes(b"malware")
     assert not response.is_no_modification
     assert "X-Virus-ID" in response.headers
 
+
 def test_timeout_handling(mock_icap_client_timeout):
     """Test timeout error handling."""
     with pytest.raises(IcapTimeoutError):
         mock_icap_client_timeout.scan_bytes(b"content")
+
 
 async def test_async_mock(mock_async_icap_client):
     """Test async mock client."""
@@ -889,6 +903,7 @@ def eicar_detector(data: bytes, **kwargs):
         return IcapResponseBuilder().virus("EICAR-Test").build()
     return IcapResponseBuilder().clean().build()
 
+
 client = MockIcapClient()
 client.on_respmod(callback=eicar_detector)
 
@@ -909,9 +924,7 @@ client.when(filename_matches=r".*\.exe$").respond(
 )
 
 # Match by content
-client.when(data_contains=b"EICAR").respond(
-    IcapResponseBuilder().virus("EICAR-Test").build()
-)
+client.when(data_contains=b"EICAR").respond(IcapResponseBuilder().virus("EICAR-Test").build())
 
 client.scan_bytes(b"safe", filename="doc.pdf").is_no_modification  # True
 client.scan_bytes(b"safe", filename="app.exe").is_no_modification  # False
@@ -926,10 +939,10 @@ client = MockIcapClient()
 client.scan_bytes(b"content", filename="test.txt")
 
 call = client.last_call
-call.method      # "scan_bytes"
-call.data        # b"content"
-call.filename    # "test.txt"
-call.was_clean   # True
+call.method  # "scan_bytes"
+call.data  # b"content"
+call.filename  # "test.txt"
+call.was_clean  # True
 call.matched_by  # "default"
 ```
 
@@ -993,11 +1006,13 @@ The `@pytest.mark.icap_mock` marker provides declarative mock configuration:
 import pytest
 from icap.exception import IcapTimeoutError
 
+
 # Configure clean response
 @pytest.mark.icap_mock(response="clean")
 def test_clean_scan(icap_mock):
     response = icap_mock.scan_bytes(b"content")
     assert response.is_no_modification
+
 
 # Configure virus detection
 @pytest.mark.icap_mock(response="virus", virus_name="Trojan.Custom")
@@ -1005,17 +1020,20 @@ def test_virus_detection(icap_mock):
     response = icap_mock.scan_bytes(b"malware")
     assert response.headers["X-Virus-ID"] == "Trojan.Custom"
 
+
 # Configure error response
 @pytest.mark.icap_mock(response="error")
 def test_error_response(icap_mock):
     response = icap_mock.scan_bytes(b"content")
     assert response.status_code == 500
 
+
 # Configure exception
 @pytest.mark.icap_mock(raises=IcapTimeoutError)
 def test_timeout(icap_mock):
     with pytest.raises(IcapTimeoutError):
         icap_mock.scan_bytes(b"content")
+
 
 # Strict mode - fails if not all responses consumed
 @pytest.mark.icap_mock(strict=True)
@@ -1025,6 +1043,7 @@ def test_strict_mode(icap_mock):
     icap_mock.scan_bytes(b"file1")  # clean
     icap_mock.scan_bytes(b"file2")  # virus
     # Test passes - all responses consumed
+
 
 # Per-method configuration
 @pytest.mark.icap_mock(
@@ -1055,6 +1074,7 @@ def test_sequence(icap_mock):
     assert r1.is_no_modification
     assert not r2.is_no_modification
     assert r3.is_no_modification
+
 
 # Custom error responses
 @pytest.mark.icap_response("error", code=503, message="Unavailable")
