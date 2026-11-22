@@ -2,26 +2,44 @@
 # https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
 version: 2
 updates:
+  # Python dependencies (pyproject.toml and uv.lock)
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Wait 14 days before proposing a new release. Keep this equal to
+    # [tool.uv] exclude-newer in pyproject.toml.
+    cooldown:
+      default-days: 14
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    # One PR for all minor/patch updates; majors arrive separately
+    groups:
+      python-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      python-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "ci"
-
-  # Python dependencies
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "deps"
-    # Group minor/patch updates to reduce PR noise
     groups:
-      dev-dependencies:
+      actions:
         patterns:
-          - "ruff"
-          - "pytest-*"
-          - "nox*"
-          - "ty"
+          - "*"
