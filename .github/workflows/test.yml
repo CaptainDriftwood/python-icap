@@ -76,6 +76,17 @@ jobs:
           rm -f server.csr ca-key.pem ca.srl ext.cnf &&
           chmod 644 ca.pem server.pem && chmod 600 server-key.pem'
 
+    # The load tests open tens of thousands of short connections to
+    # localhost:1344. Docker's userland proxy opens one connection to the
+    # container for each, and every closed one keeps its source port in
+    # TIME_WAIT for 60s. Once the whole ephemeral range is taken, the proxy
+    # resets all new connections to that port until the entries expire.
+    # Letting the kernel reuse TIME_WAIT ports prevents that.
+    - name: Allow reuse of TIME_WAIT ports
+      run: |
+        sysctl net.ipv4.ip_local_port_range net.ipv4.tcp_max_tw_buckets
+        sudo sysctl -w net.ipv4.tcp_tw_reuse=1
+
     - name: Build and start ICAP server
       run: |
         docker compose -f docker/docker-compose.yml up -d
@@ -111,6 +122,17 @@ jobs:
 
     - name: Install dependencies
       run: uv sync --all-extras
+
+    # The load tests open tens of thousands of short connections to
+    # localhost:1344. Docker's userland proxy opens one connection to the
+    # container for each, and every closed one keeps its source port in
+    # TIME_WAIT for 60s. Once the whole ephemeral range is taken, the proxy
+    # resets all new connections to that port until the entries expire.
+    # Letting the kernel reuse TIME_WAIT ports prevents that.
+    - name: Allow reuse of TIME_WAIT ports
+      run: |
+        sysctl net.ipv4.ip_local_port_range net.ipv4.tcp_max_tw_buckets
+        sudo sysctl -w net.ipv4.tcp_tw_reuse=1
 
     - name: Build and start ICAP server
       run: |
