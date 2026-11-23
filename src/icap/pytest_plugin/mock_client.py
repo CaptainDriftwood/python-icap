@@ -11,7 +11,7 @@ import inspect
 import time
 from collections import deque
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO, cast
 
 from .builder import IcapResponseBuilder
 from .call_record import MockCall, MockResponseExhaustedError
@@ -1246,8 +1246,10 @@ class MockIcapClient:
         callback = self._callbacks.get(method)
         if callback is not None:
             self._callback_used[method] = True
-            # Type checker can't narrow callback type; sync client only uses sync callbacks
-            return callback(**call_kwargs), "callback"  # type: ignore[return-value]
+            # _callbacks is shared with MockAsyncIcapClient, hence the union type.
+            # _validate_callback rejects async callbacks on the sync client.
+            sync_callback = cast(ResponseCallback, callback)
+            return sync_callback(**call_kwargs), "callback"
 
         queue = self._response_queues[method]
 

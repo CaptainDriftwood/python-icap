@@ -169,11 +169,17 @@ class MockAsyncIcapClient(MockIcapClient):
             call.matched_by = "queue"
             raise
 
-    async def connect(self) -> None:  # type: ignore[override]
+    # The ICAP methods below deliberately override MockIcapClient's synchronous
+    # methods with coroutines, mirroring AsyncIcapClient. That is not a
+    # substitutable override, so each one carries a rule-specific suppression.
+    # Removing the need for them would mean no longer inheriting from
+    # MockIcapClient, which is a public API change.
+
+    async def connect(self) -> None:  # ty: ignore[invalid-method-override]
         """Simulate async connection (no-op)."""
         self._connected = True
 
-    async def disconnect(self) -> None:  # type: ignore[override]
+    async def disconnect(self) -> None:  # ty: ignore[invalid-method-override]
         """Simulate async disconnection (no-op)."""
         self._connected = False
 
@@ -191,12 +197,12 @@ class MockAsyncIcapClient(MockIcapClient):
         await self.disconnect()
         return False
 
-    async def options(self, service: str) -> IcapResponse:  # type: ignore[override]
+    async def options(self, service: str) -> IcapResponse:  # ty: ignore[invalid-method-override]
         """Send OPTIONS request (mocked)."""
         call = self._record_call("options", service=service)
         return await self._execute_call_async(call, "options")
 
-    async def respmod(  # type: ignore[override]
+    async def respmod(  # ty: ignore[invalid-method-override]
         self,
         service: str,
         http_request: bytes,
@@ -215,7 +221,7 @@ class MockAsyncIcapClient(MockIcapClient):
         )
         return await self._execute_call_async(call, "respmod")
 
-    async def reqmod(  # type: ignore[override]
+    async def reqmod(  # ty: ignore[invalid-method-override]
         self,
         service: str,
         http_request: bytes,
@@ -232,7 +238,7 @@ class MockAsyncIcapClient(MockIcapClient):
         )
         return await self._execute_call_async(call, "reqmod")
 
-    async def scan_bytes(  # type: ignore[override]
+    async def scan_bytes(  # ty: ignore[invalid-method-override]
         self,
         data: bytes,
         service: str = "avscan",
@@ -247,7 +253,7 @@ class MockAsyncIcapClient(MockIcapClient):
         )
         return await self._execute_call_async(call, "respmod")
 
-    async def scan_file(  # type: ignore[override]
+    async def scan_file(  # ty: ignore[invalid-method-override]
         self,
         filepath: str | Path,
         service: str = "avscan",
@@ -268,7 +274,7 @@ class MockAsyncIcapClient(MockIcapClient):
         )
         return await self._execute_call_async(call, "respmod")
 
-    async def scan_stream(  # type: ignore[override]
+    async def scan_stream(  # ty: ignore[invalid-method-override]
         self,
         stream: BinaryIO,
         service: str = "avscan",
